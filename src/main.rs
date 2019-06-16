@@ -15,21 +15,18 @@
 
 mod cmd;
 mod daemon;
+mod runner;
 
 use crate::cmd::handle_cmd_line;
-use crate::daemon::{run_daemon, Status};
+use crate::runner::{run_cmd, start};
 use clap::ArgMatches;
 use std::process::exit;
 
 fn main() {
-    let res = match run() {
-        Ok(_) => 0,
-        Err(err) => err,
-    };
-    exit(res);
+    exit(run());
 }
 
-fn run() -> Result<(), i32> {
+fn run() -> i32 {
     let matches = handle_cmd_line();
 
     return match matches.subcommand() {
@@ -41,37 +38,22 @@ fn run() -> Result<(), i32> {
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");
-            Ok(())
+            1
         }
     };
 }
 
-fn status(sub_m: &ArgMatches) -> Result<(), i32> {
+fn status(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return Ok(());
+    return 0;
 }
 
-fn send(sub_m: &ArgMatches) -> Result<(), i32> {
+fn send(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return Ok(());
+    return 0;
 }
 
-fn log(sub_m: &ArgMatches) -> Result<(), i32> {
+fn log(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return Ok(());
-}
-
-fn start(sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    match run_daemon() {
-        Ok(Status::CONTINUE) => {}
-        Ok(Status::QUIT) => return Ok(()),
-        Err(err) => return Err(err),
-    }
-    return Ok(());
-}
-
-fn run_cmd(sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    return Ok(());
+    return 0;
 }

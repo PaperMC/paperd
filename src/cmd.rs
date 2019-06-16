@@ -35,9 +35,14 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
              JAVA_HOME environment variable instead. If neither of these finds a JVM, this \
              argument must be supplied.",
         )
-        .short("j")
         .long("jvm")
         .takes_value(true);
+
+    let jar_arg = Arg::with_name("JAR")
+        .help("The jar to run.")
+        .long("jar")
+        .takes_value(true)
+        .default_value("paperclip.jar");
 
     return App::new("paperd")
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -87,6 +92,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
             SubCommand::with_name("start")
                 .about("Start the MC server in the background.")
                 .arg(java_arg.clone())
+                .arg(jar_arg.clone())
                 .arg(tail_arg(
                     "Tail the server log after starting the server. Press q to \
                      quit (will NOT stop the server).",
@@ -97,6 +103,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
             SubCommand::with_name("run")
                 .about("Start the MC server in the foreground.")
                 .arg(java_arg.clone())
+                .arg(jar_arg.clone())
                 .display_order(2),
         )
         .get_matches();

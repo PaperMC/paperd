@@ -16,6 +16,7 @@
 extern crate nix;
 
 use nix::unistd::{close, fork, setsid, ForkResult};
+use std::io::{stderr, stdin, stdout};
 use std::os::unix::io::AsRawFd;
 
 pub enum Status {
@@ -29,7 +30,7 @@ pub enum Status {
 pub fn run_daemon() -> Result<Status, i32> {
     // Create a new pid and execute from there
     match fork() {
-        Ok(ForkResult::Parent { child, .. }) => {
+        Ok(ForkResult::Parent { .. }) => {
             // Continue in the child, we're done in the parent
             return Ok(Status::QUIT);
         }
@@ -53,9 +54,9 @@ pub fn run_daemon() -> Result<Status, i32> {
     };
 
     // Close stdin, stdout, stderr; we won't be using them from here on
-    close_fd(std::io::stdin());
-    close_fd(std::io::stdout());
-    close_fd(std::io::stderr());
+    close_fd(stdin());
+    close_fd(stdout());
+    close_fd(stderr());
 
     return Ok(Status::CONTINUE);
 }

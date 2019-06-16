@@ -8,3 +8,4 @@ license = "LGPL-3.0-only"
 [dependencies]
 clap = "~2.33.0"
 nix = "0.14.1"
+signal-hook = "0.1.9"
