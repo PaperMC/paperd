@@ -13,6 +13,12 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+extern crate clap;
+extern crate nix;
+extern crate regex;
+extern crate signal_hook;
+extern crate sys_info;
+
 mod cmd;
 mod daemon;
 mod runner;
@@ -45,15 +51,15 @@ fn run() -> i32 {
 
 fn status(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return 0;
+    unimplemented!();
 }
 
 fn send(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return 0;
+    unimplemented!();
 }
 
 fn log(sub_m: &ArgMatches) -> i32 {
     // TODO
-    return 0;
+    unimplemented!();
 }

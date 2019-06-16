@@ -1,24 +1,40 @@
+// This file is part of paperd, the PaperMC server daemon
+// Copyright (C) 2019 Kyle Wood (DemonWav)
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 only.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::daemon::{run_daemon, Status};
 use clap::ArgMatches;
 use nix::sys::signal;
-use nix::sys::signal::kill;
 use nix::unistd::Pid;
+use regex::Regex;
 use signal_hook::iterator::Signals;
-use signal_hook::{SIGABRT, SIGHUP, SIGILL, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
+use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
+use std::cmp::max;
 use std::env;
 use std::fs::canonicalize;
 use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
+use sys_info::mem_info;
 
 pub fn start(sub_m: &ArgMatches) -> i32 {
-    // TODO
     match run_daemon() {
         Ok(Status::CONTINUE) => {}
         Ok(Status::QUIT) => return 0,
         Err(err) => return err,
     }
-    return 0;
+    unimplemented!();
 }
 
 pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
@@ -64,8 +80,15 @@ pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
         }
     };
 
-    // TODO support JVM args somehow
+    let args = match get_jvm_args(sub_m) {
+        Ok(vec) => vec,
+        Err(exit) => {
+            return exit;
+        }
+    };
+
     let process = Command::new(java_path)
+        .args(args)
         .arg("-jar")
         .arg(jar_file)
         .current_dir(parent_path)
@@ -80,7 +103,7 @@ pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
     };
 
     // While the server is running we'll redirect some signals to it
-    let signals = Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGTERM]);
+    let signals = Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGTRAP, SIGABRT, SIGTERM]);
     let signals = match signals {
         Ok(s) => s,
         Err(err) => {
@@ -95,7 +118,7 @@ pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
     thread::spawn(move || {
         for sig_int in signals_bg.forever() {
             if let Ok(sig) = signal::Signal::from_c_int(sig_int) {
-                let _ = kill(Pid::from_raw(pid as i32), sig);
+                let _ = signal::kill(Pid::from_raw(pid as i32), sig);
             }
         }
     });
@@ -146,4 +169,65 @@ fn java_not_found() {
 
 fn jar_not_found(path: PathBuf) {
     eprintln!("Could not find jar {}", path.to_string_lossy())
+}
+
+fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
+    if let Some(vals) = sub_m.values_of("CUSTOM_ARGS") {
+        return Ok(vals.map(|s| s.to_owned()).collect());
+    }
+
+    // When all else fails, use 500m
+    // This should hopefully be small enough to not cause problems for anyone
+    let mut heap: String = "500m".to_owned();
+
+    if let Some(value) = sub_m.value_of("DEFAULT_ARGS") {
+        let reg = Regex::new(r"\d+[mG]").unwrap();
+        if !reg.is_match(value) {
+            eprintln!("Invalid format for JVM heap size. Should be something like 500m or 2G.");
+            return Err(1);
+        }
+
+        heap = value.to_owned();
+    } else {
+        // If no arguments are provided, use 1/2 of the current available memory with default flags
+        if let Ok(info) = mem_info() {
+            // info.avail should always be greater than free, but it seems there may be a bug
+            // for macOS. Assuming most users are using linux this doesn't really affect much
+            let mem = max(info.avail, info.free);
+            // mem is in kb, so convert to mb by dividing by 1000
+            // Then we take half of it
+            let mut mb = ((mem / 1000) / 2).to_string();
+
+            println!(
+                "Warning: No memory argument provided, automatically determining to use {} MB \
+                 instead. This is not recommended, please specify an amount of memory with -d or \
+                 --default-args",
+                mb
+            );
+
+            mb.push_str("m");
+            heap = mb;
+        }
+    }
+
+    let mut xms = "-Xms".to_owned();
+    let mut xmx = "-Xmx".to_owned();
+    xms.push_str(heap.as_str());
+    xmx.push_str(heap.as_str());
+
+    return Ok(vec![
+        xms,
+        xmx,
+        "-XX:+UseG1GC".to_owned(),
+        "-XX:+UnlockExperimentalVMOptions".to_owned(),
+        "-XX:MaxGCPauseMillis=100".to_owned(),
+        "-XX:+DisableExplicitGC".to_owned(),
+        "-XX:TargetSurvivorRatio=90".to_owned(),
+        "-XX:G1NewSizePercent=50".to_owned(),
+        "-XX:G1MaxNewSizePercent=80".to_owned(),
+        "-XX:G1MixedGCLiveThresholdPercent=35".to_owned(),
+        "-XX:+AlwaysPreTouch".to_owned(),
+        "-XX:+ParallelRefProcEnabled".to_owned(),
+        "-Dusing.aikars.flags=mcflags.emc.gs".to_owned(),
+    ]);
 }

@@ -13,9 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-extern crate clap;
-
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
 pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
     let pid_arg = Arg::with_name("PID")
@@ -27,22 +25,6 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
         .short("p")
         .long("pid")
         .takes_value(true);
-
-    let java_arg = Arg::with_name("JVM")
-        .help(
-            "The java binary to use to execute the paperclip jar. By default paperd will \
-             search the PATH. If there is no java binary on the PATH, paperd will use the \
-             JAVA_HOME environment variable instead. If neither of these finds a JVM, this \
-             argument must be supplied.",
-        )
-        .long("jvm")
-        .takes_value(true);
-
-    let jar_arg = Arg::with_name("JAR")
-        .help("The jar to run.")
-        .long("jar")
-        .takes_value(true)
-        .default_value("paperclip.jar");
 
     return App::new("paperd")
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -91,22 +73,89 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("start")
                 .about("Start the MC server in the background.")
-                .arg(java_arg.clone())
-                .arg(jar_arg.clone())
                 .arg(tail_arg(
                     "Tail the server log after starting the server. Press q to \
                      quit (will NOT stop the server).",
                 ))
+                .java_run()
                 .display_order(2),
         )
         .subcommand(
             SubCommand::with_name("run")
                 .about("Start the MC server in the foreground.")
-                .arg(java_arg.clone())
-                .arg(jar_arg.clone())
+                .java_run()
                 .display_order(2),
         )
         .get_matches();
+}
+
+trait JavaArg {
+    fn java_run(self) -> Self;
+}
+
+impl<'a, 'b> JavaArg for App<'a, 'b> {
+    fn java_run(self) -> Self {
+        return self
+            .arg(
+                Arg::with_name("JVM")
+                    .help(
+                        "The java binary to use to execute the paperclip jar. By default \
+                         paperd will search the PATH. If there is no java binary on the PATH, \
+                         paperd will use the JAVA_HOME environment variable instead. If neither of \
+                         these finds a JVM, this argument must be supplied.",
+                    )
+                    .long("jvm")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("JAR")
+                    .help("The jar to run.")
+                    .long("jar")
+                    .takes_value(true)
+                    .default_value("paperclip.jar"),
+            )
+            .arg(
+                Arg::with_name("DEFAULT_ARGS")
+                    .help(
+                        "Use a default set of recommended JVM arguments (Aikar's flags) \
+                         with the specified amount of memory. The format should be something \
+                         like 500m or 10G. 10G is recommended if you have enough memory. You may \
+                         not provide custom arguments if defaults are used.",
+                    )
+                    .short("d")
+                    .long("default-args")
+                    .value_name("MEMORY")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("CUSTOM_ARGS")
+                    .help(
+                        "Provide a custom set of JVM arguments to be used when running \
+                         the jar. This argument specifies all JVM arguments which will be \
+                         passed, there are no defaults when using this argument. You may not pass \
+                         custom arguments while also using -d or --default-args.",
+                    )
+                    .takes_value(true)
+                    .allow_hyphen_values(true)
+                    .multiple(true),
+            )
+            .group(
+                ArgGroup::with_name("JVM_ARGS")
+                    .arg("DEFAULT_ARGS")
+                    .arg("CUSTOM_ARGS"),
+            )
+            .after_help(
+                "EXAMPLES:\n    The --default-args argument or the 'CUSTOM_ARGS' \
+                 arguments are mutually exclusive. That is, you can either use --default-args \
+                 OR specify custom arguments, but not both.\n\n    \
+                 Examples:\n        \
+                 $ paperd run -d 10G\n    \
+                 OR\n        \
+                 $ paperd run --default-args 2G\n    \
+                 OR\n        \
+                 $ paperd run -- -Xmx5G -Xms5G",
+            );
+    }
 }
 
 fn tail_arg<'a, 'b>(message: &'a str) -> Arg<'a, 'b> {
