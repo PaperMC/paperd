@@ -20,7 +20,7 @@ use nix::unistd::Pid;
 use regex::Regex;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::env;
 use std::fs::canonicalize;
 use std::path::PathBuf;
@@ -94,6 +94,7 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
 
     // Write pid file
     let pid_file = cwd.join(PID_FILE_NAME);
+    let pid_file = pid_file.as_path();
     if let Err(_) = fs::write(pid_file, pid.to_string()) {
         return 1;
     }
@@ -108,6 +109,8 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
     let result = wait_for_child(child);
 
     signals.close();
+
+    let _ = fs::remove_file(pid_file);
 
     return result;
 }
@@ -299,7 +302,8 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
             let mem = max(info.avail, info.free);
             // mem is in kb, so convert to mb by dividing by 1000
             // Then we take half of it
-            let mut mb = ((mem / 1000) / 2).to_string();
+            // Cap the amount we automatically choose at 10G
+            let mut mb = min((mem / 1000) / 2, 10000).to_string();
 
             println!(
                 "Warning: No memory argument provided, automatically determining to use {} MB \
