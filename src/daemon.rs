@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use nix::sys::stat::{umask, Mode};
 use nix::unistd::{close, fork, setsid, ForkResult};
 use std::io::{stderr, stdin, stdout};
 use std::os::unix::io::AsRawFd;
@@ -51,6 +52,8 @@ pub fn run_daemon() -> Result<Status, i32> {
         }
     };
 
+    umask(Mode::from_bits(0o022).unwrap());
+
     // Close stdin, stdout, stderr; we won't be using them from here on
     close_fd(stdin());
     close_fd(stdout());
@@ -60,7 +63,5 @@ pub fn run_daemon() -> Result<Status, i32> {
 }
 
 fn close_fd<T: AsRawFd>(fd: T) {
-    match close(fd.as_raw_fd()) {
-        _ => {}
-    }
+    let _ = close(fd.as_raw_fd());
 }

@@ -115,12 +115,22 @@ impl<'a, 'b> JavaArg for App<'a, 'b> {
                     .default_value("paperclip.jar"),
             )
             .arg(
+                Arg::with_name("CWD")
+                    .help(
+                        "The working directory of the server. Default is the parent \
+                         directory of the jar.",
+                    )
+                    .short("w")
+                    .long("--working-dir")
+                    .takes_value(true),
+            )
+            .arg(
                 Arg::with_name("DEFAULT_ARGS")
                     .help(
                         "Use a default set of recommended JVM arguments (Aikar's flags) \
                          with the specified amount of memory. The format should be something \
-                         like 500m or 10G. 10G is recommended if you have enough memory. You may \
-                         not provide custom arguments if defaults are used.",
+                         like 500m or 10G. It's recommended to provide as much memory as possible \
+                         up to 10G. You may not provide custom arguments if defaults are used.",
                     )
                     .short("d")
                     .long("default-args")

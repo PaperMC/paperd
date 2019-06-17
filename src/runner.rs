@@ -24,95 +24,206 @@ use std::cmp::max;
 use std::env;
 use std::fs::canonicalize;
 use std::path::PathBuf;
-use std::process::Command;
-use std::thread;
+use std::process::{Child, Command};
+use std::time::{Duration, Instant};
+use std::{fs, thread};
 use sys_info::mem_info;
 
+const PID_FILE_NAME: &str = "papermc.pid";
+
 pub fn start(sub_m: &ArgMatches) -> i32 {
-    match run_daemon() {
-        Ok(Status::CONTINUE) => {}
-        Ok(Status::QUIT) => return 0,
-        Err(err) => return err,
-    }
-    unimplemented!();
-}
-
-pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
-    // Find Java executable
-    let java_path = sub_m.value_of("JVM").map(PathBuf::from).or_else(find_java);
-    let java_path = match java_path {
-        Some(path) => path,
-        None => {
-            java_not_found();
-            return 1;
-        }
-    };
-
-    // Find target jar file
-    let jar_file = match sub_m.value_of("JAR") {
-        Some(path) => match canonicalize(PathBuf::from(path)) {
-            Ok(canonical) => canonical,
-            _ => {
-                eprintln!("Failed to get full path to jar {}", path);
-                return 1;
-            }
-        },
-        None => {
-            eprintln!("Failed to resolve jar file path");
-            return 1;
-        }
-    };
-    if !jar_file.is_file() {
-        jar_not_found(jar_file);
-        return 1;
-    }
-
-    // Get the jar's parent directory
-    let parent_path = jar_file.clone();
-    let parent_path = match parent_path.parent() {
-        Some(path) => path,
-        None => {
-            eprintln!(
-                "Failed to find parent directory for jar {}",
-                jar_file.to_string_lossy()
-            );
-            return 1;
-        }
-    };
-
-    let args = match get_jvm_args(sub_m) {
-        Ok(vec) => vec,
+    let env = match setup_java_env(sub_m) {
+        Ok(env) => env,
         Err(exit) => {
             return exit;
         }
     };
 
-    let process = Command::new(java_path)
-        .args(args)
-        .arg("-jar")
-        .arg(jar_file)
-        .current_dir(parent_path)
-        .spawn();
+    match run_daemon() {
+        Ok(Status::CONTINUE) => {}
+        Ok(Status::QUIT) => {
+            println!("Server starting in background, waiting for server to start...");
 
-    let mut child = match process {
+            let pid_file = env.working_dir.join(PID_FILE_NAME);
+            let dur = Duration::from_secs(5);
+            let start = Instant::now();
+
+            // wait for pid file to be created, until timeout
+            while Instant::now().duration_since(start) < dur && !pid_file.exists() {
+                thread::yield_now();
+            }
+
+            if pid_file.exists() {
+                match fs::read_to_string(pid_file) {
+                    Ok(pid) => {
+                        println!("Server started in the background. PID: {}", pid);
+                        return 0;
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "Server started in the background. Failed to retrieve PID. \
+                             Error: {}",
+                            err
+                        );
+                        return 1;
+                    }
+                }
+            } else {
+                eprintln!("Timeout while waiting for server to start.");
+                return 1;
+            }
+        }
+        Err(err) => return err,
+    }
+
+    let process = start_process(env.clone());
+    let child = match process {
         Ok(child) => child,
         Err(err) => {
-            eprintln!("Failed to start server: {}", err);
-            return 1;
+            // TODO write to a log somewhere
+            return err;
         }
     };
 
+    let pid = child.id();
+
+    // Write pid file
+    let pid_file = env.working_dir.join(PID_FILE_NAME);
+    if let Err(_) = fs::write(pid_file, pid.to_string()) {
+        return 1;
+    }
+
+    let signals = match forward_signals(pid) {
+        Ok(sig) => sig,
+        Err(exit) => {
+            return exit;
+        }
+    };
+
+    let result = wait_for_child(child);
+
+    signals.close();
+
+    return result;
+}
+
+pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
+    let child = match setup_java_env(sub_m).and_then(|env| start_process(env)) {
+        Ok(c) => c,
+        Err(exit) => return exit,
+    };
+
+    let pid = child.id();
+    let signals = match forward_signals(pid) {
+        Ok(s) => s,
+        Err(exit) => return exit,
+    };
+
+    let result = wait_for_child(child);
+
+    signals.close();
+
+    return result;
+}
+
+#[derive(Clone)]
+struct JavaEnv {
+    java_file: PathBuf,
+    jar_file: PathBuf,
+    working_dir: PathBuf,
+    args: Vec<String>,
+}
+
+fn start_process(env: JavaEnv) -> Result<Child, i32> {
+    let result = Command::new(env.java_file)
+        .args(env.args)
+        .arg("-jar")
+        .arg(env.jar_file)
+        .current_dir(env.working_dir)
+        .spawn();
+    return match result {
+        Ok(c) => Ok(c),
+        Err(err) => {
+            eprintln!("Failed to start server: {}", err);
+            Err(1)
+        }
+    };
+}
+
+fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
+    // Find Java executable
+    let java_path = sub_m.value_of("JVM").map(PathBuf::from).or_else(find_java);
+    let java_path = match java_path {
+        Some(path) => path,
+        None => {
+            eprintln!(
+                "Could not find a JVM executable. Either make sure it's present on the PATH, or \
+                 there's a valid JAVA_HOME, or specify it with -j. See --help for more details."
+            );
+            return Err(1);
+        }
+    };
+
+    // Find target jar file
+    let jar_path = match sub_m.value_of("JAR") {
+        Some(path) => match canonicalize(PathBuf::from(path)) {
+            Ok(canonical) => canonical,
+            _ => {
+                eprintln!("Failed to get full path to jar {}", path);
+                return Err(1);
+            }
+        },
+        None => {
+            eprintln!("Failed to resolve jar file path");
+            return Err(1);
+        }
+    };
+    if !jar_path.is_file() {
+        eprintln!("Could not find jar {}", jar_path.to_string_lossy());
+        return Err(1);
+    }
+
+    // Get the jar's parent directory
+    let parent_path = sub_m
+        .value_of("CWD")
+        .map(|s| PathBuf::from(s))
+        .or_else(|| jar_path.parent().map(|p| p.to_path_buf()));
+    let parent_path = match parent_path {
+        Some(path) => path,
+        None => {
+            eprintln!(
+                "Failed to find parent directory for jar {}",
+                jar_path.to_string_lossy()
+            );
+            return Err(1);
+        }
+    };
+
+    let jvm_args = match get_jvm_args(sub_m) {
+        Ok(vec) => vec,
+        Err(exit) => {
+            return Err(exit);
+        }
+    };
+
+    return Ok(JavaEnv {
+        java_file: java_path,
+        jar_file: jar_path,
+        working_dir: parent_path,
+        args: jvm_args,
+    });
+}
+
+fn forward_signals(pid: u32) -> Result<Signals, i32> {
     // While the server is running we'll redirect some signals to it
     let signals = Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGTRAP, SIGABRT, SIGTERM]);
     let signals = match signals {
         Ok(s) => s,
         Err(err) => {
             eprintln!("Failed to register signal handlers: {}", err);
-            return 1;
+            return Err(1);
         }
     };
-
-    let pid = child.id();
 
     let signals_bg = signals.clone();
     thread::spawn(move || {
@@ -123,20 +234,17 @@ pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
         }
     });
 
-    let result = match child.wait() {
-        Ok(status) => match status.code() {
-            Some(code) => code,
-            None => 1,
-        },
+    return Ok(signals);
+}
+
+fn wait_for_child(mut child: Child) -> i32 {
+    return match child.wait().map(|status| status.code().unwrap_or(1)) {
+        Ok(status) => status,
         Err(err) => {
             eprintln!("Error while running server: {}", err);
-            return 1;
+            1
         }
     };
-
-    signals.close();
-
-    return result;
 }
 
 /// Searches the PATH for java. If that fails, JAVA_HOME is searched as well.
@@ -158,17 +266,6 @@ fn find_java() -> Option<PathBuf> {
             })
         })
         .next();
-}
-
-fn java_not_found() {
-    eprintln!(
-        "Could not find a JVM executable. Either make sure it's present on the PATH, or \
-         there's a valid JAVA_HOME, or specify it with -j. See --help for more details."
-    )
-}
-
-fn jar_not_found(path: PathBuf) {
-    eprintln!("Could not find jar {}", path.to_string_lossy())
 }
 
 fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
