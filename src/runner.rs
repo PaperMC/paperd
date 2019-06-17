@@ -76,7 +76,12 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
         Err(err) => return err,
     }
 
-    let process = start_process(env.clone());
+    let mut env = env;
+    env.args.push("-Dio.papermc.daemon.enabled=true".to_owned());
+
+    let cwd = env.working_dir.clone();
+
+    let process = start_process(env);
     let child = match process {
         Ok(child) => child,
         Err(err) => {
@@ -88,7 +93,7 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
     let pid = child.id();
 
     // Write pid file
-    let pid_file = env.working_dir.join(PID_FILE_NAME);
+    let pid_file = cwd.join(PID_FILE_NAME);
     if let Err(_) = fs::write(pid_file, pid.to_string()) {
         return 1;
     }
@@ -141,6 +146,7 @@ fn start_process(env: JavaEnv) -> Result<Child, i32> {
         .arg(env.jar_file)
         .current_dir(env.working_dir)
         .spawn();
+
     return match result {
         Ok(c) => Ok(c),
         Err(err) => {
