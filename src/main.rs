@@ -35,7 +35,7 @@ fn main() {
 fn run() -> i32 {
     let matches = handle_cmd_line();
 
-    return match matches.subcommand() {
+    let ret = match matches.subcommand() {
         ("status", Some(sub_m)) => status(sub_m),
         ("send", Some(sub_m)) => send(sub_m),
         ("log", Some(sub_m)) => log(sub_m),
@@ -44,22 +44,27 @@ fn run() -> i32 {
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");
-            1
+            Err(1)
         }
+    };
+
+    return match ret {
+        Ok(()) => 0,
+        Err(exit) => exit,
     };
 }
 
-fn status(sub_m: &ArgMatches) -> i32 {
+fn status(_sub_m: &ArgMatches) -> Result<(), i32> {
     // TODO
     unimplemented!();
 }
 
-fn send(sub_m: &ArgMatches) -> i32 {
+fn send(_sub_m: &ArgMatches) -> Result<(), i32> {
     // TODO
     unimplemented!();
 }
 
-fn log(sub_m: &ArgMatches) -> i32 {
+fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
     // TODO
     unimplemented!();
 }

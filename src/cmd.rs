@@ -35,13 +35,13 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("status")
                 .about("Get the status of the currently running server.")
-                .arg(pid_arg.clone())
+                .arg(&pid_arg)
                 .display_order(1),
         )
         .subcommand(
             SubCommand::with_name("send")
                 .about("Send a command to the running MC server.")
-                .arg(pid_arg.clone())
+                .arg(&pid_arg)
                 .arg(tail_arg(
                     "Tail the server log after sending the command to the \
                      server, useful for viewing the response. Press q to quit.",
@@ -56,7 +56,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("log")
                 .about("Print recent log messages from the running MC server.")
-                .arg(pid_arg.clone())
+                .arg(&pid_arg)
                 .arg(
                     Arg::with_name("LINES")
                         .help("The number of log messages to print.")
@@ -168,6 +168,6 @@ impl<'a, 'b> JavaArg for App<'a, 'b> {
     }
 }
 
-fn tail_arg<'a, 'b>(message: &'a str) -> Arg<'a, 'b> {
+fn tail_arg(message: &str) -> Arg {
     return Arg::with_name("TAIL").help(message).short("t").long("tail");
 }

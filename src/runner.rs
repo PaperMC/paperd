@@ -31,13 +31,8 @@ use sys_info::mem_info;
 
 const PID_FILE_NAME: &str = "papermc.pid";
 
-pub fn start(sub_m: &ArgMatches) -> i32 {
-    let env = match setup_java_env(sub_m) {
-        Ok(env) => env,
-        Err(exit) => {
-            return exit;
-        }
-    };
+pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
+    let env = setup_java_env(sub_m)?;
 
     match run_daemon() {
         Ok(Status::CONTINUE) => {}
@@ -57,7 +52,7 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
                 match fs::read_to_string(pid_file) {
                     Ok(pid) => {
                         println!("Server started in the background. PID: {}", pid);
-                        return 0;
+                        return Ok(());
                     }
                     Err(err) => {
                         eprintln!(
@@ -65,46 +60,32 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
                              Error: {}",
                             err
                         );
-                        return 1;
+                        return Err(1);
                     }
                 }
             } else {
                 eprintln!("Timeout while waiting for server to start.");
-                return 1;
+                return Err(1);
             }
         }
-        Err(err) => return err,
+        Err(err) => return Err(err),
     }
 
     let mut env = env;
     env.args.push("-Dio.papermc.daemon.enabled=true".to_owned());
 
-    let cwd = env.working_dir.clone();
-
-    let process = start_process(env);
-    let child = match process {
-        Ok(child) => child,
-        Err(err) => {
-            // TODO write to a log somewhere
-            return err;
-        }
-    };
+    let child = start_process(&env)?;
 
     let pid = child.id();
 
     // Write pid file
-    let pid_file = cwd.join(PID_FILE_NAME);
+    let pid_file = env.working_dir.join(PID_FILE_NAME);
     let pid_file = pid_file.as_path();
     if let Err(_) = fs::write(pid_file, pid.to_string()) {
-        return 1;
+        return Err(1);
     }
 
-    let signals = match forward_signals(pid) {
-        Ok(sig) => sig,
-        Err(exit) => {
-            return exit;
-        }
-    };
+    let signals = forward_signals(pid)?;
 
     let result = wait_for_child(child);
 
@@ -112,29 +93,24 @@ pub fn start(sub_m: &ArgMatches) -> i32 {
 
     let _ = fs::remove_file(pid_file);
 
-    return result;
+    return Err(result);
 }
 
-pub fn run_cmd(sub_m: &ArgMatches) -> i32 {
-    let child = match setup_java_env(sub_m).and_then(|env| start_process(env)) {
-        Ok(c) => c,
-        Err(exit) => return exit,
-    };
+pub fn run_cmd(sub_m: &ArgMatches) -> Result<(), i32> {
+    let env = setup_java_env(sub_m)?;
+    let child = start_process(&env)?;
 
     let pid = child.id();
-    let signals = match forward_signals(pid) {
-        Ok(s) => s,
-        Err(exit) => return exit,
-    };
+
+    let signals = forward_signals(pid)?;
 
     let result = wait_for_child(child);
 
     signals.close();
 
-    return result;
+    return Err(result);
 }
 
-#[derive(Clone)]
 struct JavaEnv {
     java_file: PathBuf,
     jar_file: PathBuf,
@@ -142,12 +118,12 @@ struct JavaEnv {
     args: Vec<String>,
 }
 
-fn start_process(env: JavaEnv) -> Result<Child, i32> {
-    let result = Command::new(env.java_file)
-        .args(env.args)
+fn start_process(env: &JavaEnv) -> Result<Child, i32> {
+    let result = Command::new(&env.java_file)
+        .args(&env.args)
         .arg("-jar")
-        .arg(env.jar_file)
-        .current_dir(env.working_dir)
+        .arg(&env.jar_file)
+        .current_dir(&env.working_dir)
         .spawn();
 
     return match result {
@@ -208,12 +184,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
         }
     };
 
-    let jvm_args = match get_jvm_args(sub_m) {
-        Ok(vec) => vec,
-        Err(exit) => {
-            return Err(exit);
-        }
-    };
+    let jvm_args = get_jvm_args(sub_m)?;
 
     return Ok(JavaEnv {
         java_file: java_path,
