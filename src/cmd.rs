@@ -86,6 +86,39 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
                 .java_run()
                 .display_order(2),
         )
+        .subcommand(
+            SubCommand::with_name("stop")
+                .about(
+                    "Stop the MC server gracefully. This is functionally \
+                     equivalent to sending the 'stop' command to the server.",
+                )
+                .arg(&pid_arg)
+                .arg(
+                    Arg::with_name("FORCE")
+                        .help(
+                            "Forcefully kill the server if it does not respond \
+                             within a timeout. This will first attempt to stop the server \
+                             gracefully as normal before forcefully killing the server. \
+                             Forcefully killing the server can result in loss of data and \
+                             is not recommended. Only do so if the server is not responding.",
+                        )
+                        .short("-f")
+                        .long("--force"),
+                )
+                .arg(
+                    Arg::with_name("KILL")
+                        .help(
+                            "Immediately forcefully kill the server. This will \
+                             NOT attempt to gracefully shutdown the server. This can result \
+                             in loss of data, it is not recommended unless the server is \
+                             not responding.",
+                        )
+                        .short("-k")
+                        .long("--kill"),
+                )
+                .group(ArgGroup::with_name("FORCE_ARGS").args(&["FORCE", "KILL"]))
+                .display_order(3),
+        )
         .get_matches();
 }
 

@@ -24,7 +24,7 @@ mod daemon;
 mod runner;
 
 use crate::cmd::handle_cmd_line;
-use crate::runner::{run_cmd, start};
+use crate::runner::{run_cmd, start, stop};
 use clap::ArgMatches;
 use std::process::exit;
 
@@ -41,6 +41,7 @@ fn run() -> i32 {
         ("log", Some(sub_m)) => log(sub_m),
         ("start", Some(sub_m)) => start(sub_m),
         ("run", Some(sub_m)) => run_cmd(sub_m),
+        ("stop", Some(sub_m)) => stop(sub_m),
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");
