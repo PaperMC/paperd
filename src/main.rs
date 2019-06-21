@@ -21,11 +21,14 @@ extern crate sys_info;
 
 mod cmd;
 mod daemon;
+mod messaging;
 mod runner;
 
 use crate::cmd::handle_cmd_line;
 use crate::runner::{run_cmd, start, stop};
 use clap::ArgMatches;
+use std::env;
+use std::path::PathBuf;
 use std::process::exit;
 
 fn main() {
@@ -60,9 +63,22 @@ fn status(_sub_m: &ArgMatches) -> Result<(), i32> {
     unimplemented!();
 }
 
-fn send(_sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    unimplemented!();
+fn send(sub_m: &ArgMatches) -> Result<(), i32> {
+    let pid_file = sub_m
+        .value_of("PID")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("PAPERMC_PID").map(PathBuf::from))
+        .map(PathBuf::from);
+    let pid_file = match pid_file {
+        Some(p) => p,
+        None => {
+            eprintln!("Could not find a PID file for a running server.");
+            return Err(1);
+        }
+    };
+
+    let chan = messaging::open_message_channel(pid_file)?;
+    return chan.send_message("Hello World!");
 }
 
 fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
