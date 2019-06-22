@@ -16,6 +16,8 @@
 extern crate clap;
 extern crate nix;
 extern crate regex;
+extern crate serde;
+extern crate serde_json;
 extern crate signal_hook;
 extern crate sys_info;
 
@@ -25,7 +27,8 @@ mod messaging;
 mod runner;
 
 use crate::cmd::handle_cmd_line;
-use crate::runner::{run_cmd, start, stop};
+use crate::messaging::{SendCommandMessage, StopMessage};
+use crate::runner::{run_cmd, start};
 use clap::ArgMatches;
 use std::env;
 use std::path::PathBuf;
@@ -63,25 +66,50 @@ fn status(_sub_m: &ArgMatches) -> Result<(), i32> {
     unimplemented!();
 }
 
+fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
+    let pid_file = get_pid(sub_m)?;
+
+    let message = StopMessage {};
+
+    let chan = messaging::open_message_channel(pid_file)?;
+    return chan.send_message(message);
+}
+
 fn send(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = sub_m
-        .value_of("PID")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("PAPERMC_PID").map(PathBuf::from))
-        .map(PathBuf::from);
-    let pid_file = match pid_file {
-        Some(p) => p,
+    let pid_file = get_pid(sub_m)?;
+
+    let command = match sub_m.value_of("COMMAND") {
+        Some(s) => s,
         None => {
-            eprintln!("Could not find a PID file for a running server.");
+            eprintln!("No command given.");
             return Err(1);
         }
     };
 
+    let message = SendCommandMessage {
+        message: command.to_string(),
+    };
+
     let chan = messaging::open_message_channel(pid_file)?;
-    return chan.send_message("Hello World!");
+    return chan.send_message(message);
 }
 
 fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
     // TODO
     unimplemented!();
+}
+
+fn get_pid(sub_m: &ArgMatches) -> Result<PathBuf, i32> {
+    let pid_file = sub_m
+        .value_of("PID")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("PAPERMC_PID").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(runner::PID_FILE_NAME));
+
+    if !pid_file.is_file() {
+        eprintln!("No PID file found to send commands to");
+        return Err(1);
+    }
+
+    return Ok(pid_file);
 }

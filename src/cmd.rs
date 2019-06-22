@@ -48,7 +48,12 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
                 ))
                 .arg(
                     Arg::with_name("COMMAND")
-                        .help("The command to send to the MC server.")
+                        .help(
+                            "The command to send to the MC server. Note the whole \
+                             command should be one argument, so whitespace will need to be quoted \
+                             or escaped. The string will be passed directly to the server to \
+                             parse itself.",
+                        )
                         .required(true),
                 )
                 .display_order(1),

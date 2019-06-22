@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use std::{fs, thread};
 use sys_info::mem_info;
 
-const PID_FILE_NAME: &str = "paper.pid";
+pub const PID_FILE_NAME: &str = "paper.pid";
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
@@ -308,9 +308,4 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
         "-XX:+ParallelRefProcEnabled".to_owned(),
         "-Dusing.aikars.flags=mcflags.emc.gs".to_owned(),
     ]);
-}
-
-pub fn stop(_sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    unimplemented!();
 }
