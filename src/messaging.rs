@@ -78,19 +78,19 @@ struct Data {
 }
 
 pub trait MessageHandler {
-    fn type_id(&self) -> i16;
-    fn expect_response(&self) -> bool;
+    fn type_id() -> i16;
+    fn expect_response() -> bool;
 }
 
 #[derive(Serialize)]
 pub struct StopMessage {}
 
 impl MessageHandler for StopMessage {
-    fn type_id(&self) -> i16 {
+    fn type_id() -> i16 {
         return 0;
     }
 
-    fn expect_response(&self) -> bool {
+    fn expect_response() -> bool {
         return false;
     }
 }
@@ -102,11 +102,11 @@ pub struct SendCommandMessage {
 }
 
 impl MessageHandler for SendCommandMessage {
-    fn type_id(&self) -> i16 {
+    fn type_id() -> i16 {
         return 1;
     }
 
-    fn expect_response(&self) -> bool {
+    fn expect_response() -> bool {
         return false;
     }
 }
@@ -115,11 +115,11 @@ impl MessageHandler for SendCommandMessage {
 pub struct StatusMessage {}
 
 impl MessageHandler for StatusMessage {
-    fn type_id(&self) -> i16 {
+    fn type_id() -> i16 {
         return 2;
     }
 
-    fn expect_response(&self) -> bool {
+    fn expect_response() -> bool {
         return true;
     }
 }
@@ -136,7 +136,7 @@ impl MessageChannel {
         &self,
         message: T,
     ) -> Result<R, i32> {
-        let exp_resp = message.expect_response();
+        let exp_resp = T::expect_response();
         let receive_chan = if exp_resp {
             create_receive_channel()?
         } else {
@@ -156,7 +156,7 @@ impl MessageChannel {
         while data.len() > 0 {
             let size = min(data.len(), MESSAGE_LENGTH);
             let ret = self.send_paged_message(
-                message.type_id(),
+                T::type_id(),
                 receive_chan,
                 &data[..size],
                 size == data.len(),
