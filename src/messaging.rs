@@ -132,10 +132,11 @@ pub struct MessageChannel {
 }
 
 impl MessageChannel {
-    pub fn send_message<T: MessageHandler + Serialize, R: DeserializeOwned + Default>(
-        &self,
-        message: T,
-    ) -> Result<R, i32> {
+    pub fn send_message<T, R>(&self, message: T) -> Result<R, i32>
+    where
+        T: MessageHandler + Serialize,
+        R: DeserializeOwned + Default,
+    {
         let exp_resp = T::expect_response();
         let receive_chan = if exp_resp {
             create_receive_channel()?
