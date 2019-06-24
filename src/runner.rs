@@ -36,7 +36,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 
     match run_daemon() {
         Ok(Status::CONTINUE) => {}
-        Ok(Status::QUIT) => {
+        Ok(Status::QUIT(pid)) => {
             println!("Server starting in background, waiting for server to start...");
 
             let pid_file = env.working_dir.join(PID_FILE_NAME);
@@ -48,21 +48,12 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
                 thread::yield_now();
             }
 
+            // TODO support tailing
             if pid_file.exists() {
-                match fs::read_to_string(pid_file) {
-                    Ok(pid) => {
-                        println!("Server started in the background. PID: {}", pid);
-                        return Ok(());
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "Server started in the background. Failed to retrieve PID. \
-                             Error: {}",
-                            err
-                        );
-                        return Err(1);
-                    }
-                }
+                // TODO call server status command to determine when it's started
+                // we assume here the server has started since the pid_file was created
+                println!("Server started in the background. PID: {}", pid);
+                return Ok(());
             } else {
                 eprintln!("Timeout while waiting for server to start.");
                 return Err(1);

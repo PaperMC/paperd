@@ -13,8 +13,10 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use nix::libc::{ftok, msgget, msgsnd, IPC_CREAT};
-use serde::{Deserialize, Serialize};
+use nix::errno::Errno;
+use nix::libc::{ftok, key_t, msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::cmp::min;
 use std::ffi::CString;
 use std::mem::size_of;
@@ -22,6 +24,8 @@ use std::os::raw::{c_long, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process;
+use std::ptr::null_mut;
+use std::str::from_utf8;
 
 pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
     let pid_file = pid_file.as_ref();
@@ -49,15 +53,14 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
         msgget(msg_key, 0o666 | IPC_CREAT)
     };
 
+    if msq_id == -1 {
+        let msg = Errno::last().desc();
+        eprintln!("Failed to open message channel: {}: {}", msq_id, msg);
+        return Err(1);
+    }
+
     return Ok(MessageChannel { msq_id });
 }
-
-pub struct MessageChannel {
-    msq_id: i32,
-}
-
-const MESSAGE_TYPE: c_long = 0x7654;
-const MESSAGE_LENGTH: usize = 100;
 
 #[repr(C)]
 struct Message {
@@ -67,6 +70,7 @@ struct Message {
 
 #[repr(C)]
 struct Data {
+    response_chan: i32,
     response_pid: u32,
     message_type: i16,
     message_length: u8,
@@ -75,19 +79,25 @@ struct Data {
 
 pub trait MessageHandler {
     fn type_id(&self) -> i16;
+    fn expect_response(&self) -> bool;
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct StopMessage {}
 
 impl MessageHandler for StopMessage {
     fn type_id(&self) -> i16 {
         return 0;
     }
+
+    fn expect_response(&self) -> bool {
+        return false;
+    }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct SendCommandMessage {
+    #[serde(rename = "message")]
     pub message: String,
 }
 
@@ -95,10 +105,44 @@ impl MessageHandler for SendCommandMessage {
     fn type_id(&self) -> i16 {
         return 1;
     }
+
+    fn expect_response(&self) -> bool {
+        return false;
+    }
+}
+
+#[derive(Serialize)]
+pub struct StatusMessage {}
+
+impl MessageHandler for StatusMessage {
+    fn type_id(&self) -> i16 {
+        return 2;
+    }
+
+    fn expect_response(&self) -> bool {
+        return true;
+    }
+}
+
+const MESSAGE_TYPE: c_long = 0x7654;
+const MESSAGE_LENGTH: usize = 100;
+
+pub struct MessageChannel {
+    msq_id: i32,
 }
 
 impl MessageChannel {
-    pub fn send_message<T: Serialize + MessageHandler>(&self, message: T) -> Result<(), i32> {
+    pub fn send_message<T: MessageHandler + Serialize, R: DeserializeOwned + Default>(
+        &self,
+        message: T,
+    ) -> Result<R, i32> {
+        let exp_resp = message.expect_response();
+        let receive_chan = if exp_resp {
+            create_receive_channel()?
+        } else {
+            -1
+        };
+
         let msg = match serde_json::to_string(&message) {
             Ok(s) => s,
             Err(e) => {
@@ -111,20 +155,44 @@ impl MessageChannel {
 
         while data.len() > 0 {
             let size = min(data.len(), MESSAGE_LENGTH);
-            let ret = self.send_paged_message(message.type_id(), &data[..size], size == data.len());
+            let ret = self.send_paged_message(
+                message.type_id(),
+                receive_chan,
+                &data[..size],
+                size == data.len(),
+            );
+
             if ret == -1 {
-                return Err(ret);
+                let msg = Errno::last().desc();
+                eprintln!(
+                    "Failed to send message to channel: {}: {}",
+                    self.msq_id, msg
+                );
+                return Err(1);
             }
+
             data = &data[size..];
         }
 
-        return Ok(());
+        if exp_resp {
+            let msg = receive_message(receive_chan)?;
+            return match serde_json::from_str::<R>(msg.as_str()) {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    eprintln!("Failed to parse response from server: {}", e);
+                    Err(1)
+                }
+            };
+        }
+
+        return Ok(R::default());
     }
 
-    fn send_paged_message(&self, type_id: i16, msg: &[u8], fin: bool) -> i32 {
+    fn send_paged_message(&self, type_id: i16, receive_chan: i32, msg: &[u8], fin: bool) -> i32 {
         let mut message = Message {
             m_type: MESSAGE_TYPE,
             data: Data {
+                response_chan: receive_chan,
                 response_pid: process::id(),
                 message_type: type_id,
                 message_length: 0,
@@ -154,4 +222,83 @@ impl MessageChannel {
             )
         };
     }
+}
+
+fn create_receive_channel() -> Result<i32, i32> {
+    let pid = process::id();
+
+    let msqid = unsafe { msgget(pid as key_t, 0o666 | IPC_CREAT) };
+    if msqid == -1 {
+        let msg = Errno::last().desc();
+        eprintln!("Failed to open message channel: {}: {}", msqid, msg);
+        return Err(1);
+    }
+
+    return Ok(msqid);
+}
+
+fn receive_message(chan_id: i32) -> Result<String, i32> {
+    let mut message = Message {
+        m_type: MESSAGE_TYPE,
+        data: Data {
+            response_chan: 0,
+            response_pid: 0,
+            message_type: 0,
+            message_length: 0,
+            message: [0; MESSAGE_LENGTH],
+        },
+    };
+
+    let mut buffer = Vec::<u8>::new();
+
+    let mut is_done = false;
+    while !is_done {
+        let res = unsafe {
+            msgrcv(
+                chan_id,
+                &mut message as *mut _ as *mut c_void,
+                size_of::<Data>(),
+                MESSAGE_TYPE,
+                0,
+            )
+        };
+
+        if res == -1 {
+            let msg = Errno::last().desc();
+            eprintln!(
+                "Failed to receive message from channel: {}: {}",
+                chan_id, msg
+            );
+            return Err(1);
+        }
+
+        const MASK: u8 = 0x80;
+        is_done = message.data.message_length & MASK == MASK;
+        let clear: u8 = if is_done {
+            0x7F // clear 1st bit
+        } else {
+            0xFF // do nothing
+        };
+        let len = (message.data.message_length & clear) as usize;
+
+        {
+            let data = &message.data.message[..len];
+            buffer.extend(data);
+        }
+    }
+
+    let res = unsafe { msgctl(chan_id, IPC_RMID, null_mut()) };
+    if res == -1 {
+        let msg = Errno::last().desc();
+        eprintln!("Failed to cleanup message channel: {}: {}", chan_id, msg);
+        return Err(1);
+    }
+
+    return match from_utf8(buffer.as_slice()) {
+        Ok(s) => Ok(s.to_string()),
+        Err(e) => {
+            eprintln!("Failed to decode response from server: {}", e);
+            return Err(1);
+        }
+    };
 }

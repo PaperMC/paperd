@@ -5,6 +5,12 @@ authors = ["Kyle Wood <demonwav@gmail.com>"]
 edition = "2018"
 license = "LGPL-3.0-only"
 
+[profile.release]
+opt-level = 'z'  # Optimize for size.
+lto = true
+codegen-units = 1
+panic = 'abort'
+
 [dependencies]
 clap = "~2.33.0"
 nix = "0.14.1"

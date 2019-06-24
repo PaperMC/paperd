@@ -25,10 +25,12 @@ mod cmd;
 mod daemon;
 mod messaging;
 mod runner;
+mod status;
 
 use crate::cmd::handle_cmd_line;
 use crate::messaging::{SendCommandMessage, StopMessage};
 use crate::runner::{run_cmd, start};
+use crate::status::status;
 use clap::ArgMatches;
 use std::env;
 use std::path::PathBuf;
@@ -61,18 +63,15 @@ fn run() -> i32 {
     };
 }
 
-fn status(_sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    unimplemented!();
-}
-
 fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
 
     let message = StopMessage {};
 
     let chan = messaging::open_message_channel(pid_file)?;
-    return chan.send_message(message);
+    chan.send_message::<StopMessage, ()>(message)?;
+    // TODO wait for server to stop / timeout
+    return Ok(());
 }
 
 fn send(sub_m: &ArgMatches) -> Result<(), i32> {
@@ -91,7 +90,9 @@ fn send(sub_m: &ArgMatches) -> Result<(), i32> {
     };
 
     let chan = messaging::open_message_channel(pid_file)?;
-    return chan.send_message(message);
+    chan.send_message::<SendCommandMessage, ()>(message)?;
+    // TODO support tailing
+    return Ok(());
 }
 
 fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
@@ -99,7 +100,7 @@ fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
     unimplemented!();
 }
 
-fn get_pid(sub_m: &ArgMatches) -> Result<PathBuf, i32> {
+pub fn get_pid(sub_m: &ArgMatches) -> Result<PathBuf, i32> {
     let pid_file = sub_m
         .value_of("PID")
         .map(PathBuf::from)

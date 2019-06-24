@@ -20,7 +20,7 @@ use std::os::unix::io::AsRawFd;
 
 pub enum Status {
     CONTINUE,
-    QUIT,
+    QUIT(i32),
 }
 
 /// Forks the currently running process and returns either an error int (to exit with) or a `Status`
@@ -29,9 +29,9 @@ pub enum Status {
 pub fn run_daemon() -> Result<Status, i32> {
     // Create a new pid and execute from there
     match fork() {
-        Ok(ForkResult::Parent { .. }) => {
+        Ok(ForkResult::Parent { child }) => {
             // Continue in the child, we're done in the parent
-            return Ok(Status::QUIT);
+            return Ok(Status::QUIT(child.as_raw()));
         }
         Ok(ForkResult::Child) => {}
         Err(_) => {
