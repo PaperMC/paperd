@@ -14,6 +14,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::daemon::{run_daemon, Status};
+use crate::log::{find_log_file, tail};
+use crate::util::find_prog;
 use clap::ArgMatches;
 use nix::sys::signal;
 use nix::unistd::Pid;
@@ -21,7 +23,6 @@ use regex::Regex;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
 use std::cmp::{max, min};
-use std::env;
 use std::fs::canonicalize;
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -35,7 +36,6 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
 
     match run_daemon() {
-        Ok(Status::CONTINUE) => {}
         Ok(Status::QUIT(pid)) => {
             println!("Server starting in background, waiting for server to start...");
 
@@ -48,22 +48,26 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
                 thread::yield_now();
             }
 
-            // TODO support tailing
             if pid_file.exists() {
-                // TODO call server status command to determine when it's started
-                // we assume here the server has started since the pid_file was created
                 println!("Server started in the background. PID: {}", pid);
-                return Ok(());
+                if sub_m.is_present("TAIL") {
+                    let log_file = find_log_file(&pid_file)?;
+                    return tail(log_file, 0, true);
+                } else {
+                    return Ok(());
+                }
             } else {
                 eprintln!("Timeout while waiting for server to start.");
                 return Err(1);
             }
         }
+        Ok(Status::CONTINUE) => {}
         Err(err) => return Err(err),
     }
 
     let mut env = env;
-    env.args.push("-Dio.papermc.daemon.enabled=true".to_owned());
+    env.args
+        .push("-Dio.papermc.daemon.enabled=true".to_string());
 
     let child = start_process(&env)?;
 
@@ -220,33 +224,17 @@ fn wait_for_child(mut child: Child) -> i32 {
 
 /// Searches the PATH for java. If that fails, JAVA_HOME is searched as well.
 fn find_java() -> Option<PathBuf> {
-    return vec![("PATH", "java"), ("JAVA_HOME", "bin/java")]
-        .iter()
-        .filter_map(|(var, file)| {
-            env::var_os(var).and_then(|paths| {
-                env::split_paths(&paths)
-                    .filter_map(|dir| {
-                        let full_path = dir.join(file);
-                        if full_path.is_file() {
-                            Some(full_path)
-                        } else {
-                            None
-                        }
-                    })
-                    .next()
-            })
-        })
-        .next();
+    return find_prog(&[("PATH", "java"), ("JAVA_HOME", "bin/java")]);
 }
 
 fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
     if let Some(vals) = sub_m.values_of("CUSTOM_ARGS") {
-        return Ok(vals.map(|s| s.to_owned()).collect());
+        return Ok(vals.map(|s| s.to_string()).collect());
     }
 
     // When all else fails, use 500m
     // This should hopefully be small enough to not cause problems for anyone
-    let mut heap: String = "500m".to_owned();
+    let mut heap: String = "500m".to_string();
 
     if let Some(value) = sub_m.value_of("DEFAULT_ARGS") {
         let reg = Regex::new(r"\d+[mG]").unwrap();
@@ -255,7 +243,7 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
             return Err(1);
         }
 
-        heap = value.to_owned();
+        heap = value.to_string();
     } else {
         // If no arguments are provided, use 1/2 of the current available memory with default flags
         if let Ok(info) = mem_info() {
@@ -279,24 +267,24 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
         }
     }
 
-    let mut xms = "-Xms".to_owned();
-    let mut xmx = "-Xmx".to_owned();
+    let mut xms = "-Xms".to_string();
+    let mut xmx = "-Xmx".to_string();
     xms.push_str(heap.as_str());
     xmx.push_str(heap.as_str());
 
     return Ok(vec![
         xms,
         xmx,
-        "-XX:+UseG1GC".to_owned(),
-        "-XX:+UnlockExperimentalVMOptions".to_owned(),
-        "-XX:MaxGCPauseMillis=100".to_owned(),
-        "-XX:+DisableExplicitGC".to_owned(),
-        "-XX:TargetSurvivorRatio=90".to_owned(),
-        "-XX:G1NewSizePercent=50".to_owned(),
-        "-XX:G1MaxNewSizePercent=80".to_owned(),
-        "-XX:G1MixedGCLiveThresholdPercent=35".to_owned(),
-        "-XX:+AlwaysPreTouch".to_owned(),
-        "-XX:+ParallelRefProcEnabled".to_owned(),
-        "-Dusing.aikars.flags=mcflags.emc.gs".to_owned(),
+        "-XX:+UseG1GC".to_string(),
+        "-XX:+UnlockExperimentalVMOptions".to_string(),
+        "-XX:MaxGCPauseMillis=100".to_string(),
+        "-XX:+DisableExplicitGC".to_string(),
+        "-XX:TargetSurvivorRatio=90".to_string(),
+        "-XX:G1NewSizePercent=50".to_string(),
+        "-XX:G1MaxNewSizePercent=80".to_string(),
+        "-XX:G1MixedGCLiveThresholdPercent=35".to_string(),
+        "-XX:+AlwaysPreTouch".to_string(),
+        "-XX:+ParallelRefProcEnabled".to_string(),
+        "-Dusing.aikars.flags=mcflags.emc.gs".to_string(),
     ]);
 }

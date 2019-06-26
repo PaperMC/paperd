@@ -44,7 +44,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
                 .arg(&pid_arg)
                 .arg(tail_arg(
                     "Tail the server log after sending the command to the \
-                     server, useful for viewing the response. Press q to quit.",
+                     server, useful for viewing the response. Press C-c to quit.",
                 ))
                 .arg(
                     Arg::with_name("COMMAND")
@@ -71,7 +71,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
                 )
                 .arg(tail_arg(
                     "Tail the server log rather than just printing recent \
-                     messages. Press q to quit.",
+                     messages. Press C-c.",
                 ))
                 .display_order(1),
         )
@@ -79,7 +79,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
             SubCommand::with_name("start")
                 .about("Start the MC server in the background.")
                 .arg(tail_arg(
-                    "Tail the server log after starting the server. Press q to \
+                    "Tail the server log after starting the server. Press C-c to \
                      quit (will NOT stop the server).",
                 ))
                 .java_run()

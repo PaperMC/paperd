@@ -23,17 +23,20 @@ extern crate sys_info;
 
 mod cmd;
 mod daemon;
+mod log;
 mod messaging;
 mod runner;
+mod send;
 mod status;
+mod stop;
+mod util;
 
 use crate::cmd::handle_cmd_line;
-use crate::messaging::{SendCommandMessage, StopMessage};
+use crate::log::log;
 use crate::runner::{run_cmd, start};
+use crate::send::send;
 use crate::status::status;
-use clap::ArgMatches;
-use std::env;
-use std::path::PathBuf;
+use crate::stop::stop;
 use std::process::exit;
 
 fn main() {
@@ -61,56 +64,4 @@ fn run() -> i32 {
         Ok(()) => 0,
         Err(exit) => exit,
     };
-}
-
-fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
-
-    let message = StopMessage {};
-
-    let chan = messaging::open_message_channel(pid_file)?;
-    chan.send_message::<StopMessage, ()>(message)?;
-    // TODO wait for server to stop / timeout
-    return Ok(());
-}
-
-fn send(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
-
-    let command = match sub_m.value_of("COMMAND") {
-        Some(s) => s,
-        None => {
-            eprintln!("No command given.");
-            return Err(1);
-        }
-    };
-
-    let message = SendCommandMessage {
-        message: command.to_string(),
-    };
-
-    let chan = messaging::open_message_channel(pid_file)?;
-    chan.send_message::<SendCommandMessage, ()>(message)?;
-    // TODO support tailing
-    return Ok(());
-}
-
-fn log(_sub_m: &ArgMatches) -> Result<(), i32> {
-    // TODO
-    unimplemented!();
-}
-
-pub fn get_pid(sub_m: &ArgMatches) -> Result<PathBuf, i32> {
-    let pid_file = sub_m
-        .value_of("PID")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("PAPERMC_PID").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from(runner::PID_FILE_NAME));
-
-    if !pid_file.is_file() {
-        eprintln!("No PID file found to send commands to");
-        return Err(1);
-    }
-
-    return Ok(pid_file);
 }

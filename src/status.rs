@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::messaging::StatusMessage;
-use crate::{get_pid, messaging};
+use crate::messaging;
+use crate::messaging::MessageHandler;
+use crate::util::get_pid;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +39,21 @@ pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
     return Ok(());
 }
 
+// Request
+#[derive(Serialize)]
+struct StatusMessage {}
+
+impl MessageHandler for StatusMessage {
+    fn type_id() -> i16 {
+        return 2;
+    }
+
+    fn expect_response() -> bool {
+        return true;
+    }
+}
+
+// Response
 #[derive(Serialize, Deserialize, Default)]
 struct StatusMessageResponse {
     #[serde(rename = "numPlayers")]

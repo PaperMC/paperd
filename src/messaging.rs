@@ -62,6 +62,9 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
     return Ok(MessageChannel { msq_id });
 }
 
+const MESSAGE_TYPE: c_long = 0x7654;
+const MESSAGE_LENGTH: usize = 100;
+
 #[repr(C)]
 struct Message {
     m_type: c_long,
@@ -81,51 +84,6 @@ pub trait MessageHandler {
     fn type_id() -> i16;
     fn expect_response() -> bool;
 }
-
-#[derive(Serialize)]
-pub struct StopMessage {}
-
-impl MessageHandler for StopMessage {
-    fn type_id() -> i16 {
-        return 0;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
-}
-
-#[derive(Serialize)]
-pub struct SendCommandMessage {
-    #[serde(rename = "message")]
-    pub message: String,
-}
-
-impl MessageHandler for SendCommandMessage {
-    fn type_id() -> i16 {
-        return 1;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
-}
-
-#[derive(Serialize)]
-pub struct StatusMessage {}
-
-impl MessageHandler for StatusMessage {
-    fn type_id() -> i16 {
-        return 2;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
-}
-
-const MESSAGE_TYPE: c_long = 0x7654;
-const MESSAGE_LENGTH: usize = 100;
 
 pub struct MessageChannel {
     msq_id: i32,
