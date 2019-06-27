@@ -24,7 +24,7 @@ pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
 
     let message = StatusMessage {};
 
-    let chan = messaging::open_message_channel(pid_file)?;
+    let chan = messaging::open_message_channel(&pid_file)?;
     let res = chan.send_message::<StatusMessage, StatusMessageResponse>(message)?;
 
     let text = match serde_json::to_string_pretty(&res) {

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::util::{find_prog, get_pid};
+use crate::util::{find_prog, get_pid, ExitError};
 use clap::ArgMatches;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,13 +24,7 @@ pub fn log(sub_m: &ArgMatches) -> Result<(), i32> {
 
     let follow = sub_m.is_present("TAIL");
     let lines = match sub_m.value_of("LINES") {
-        Some(l) => match l.parse::<i32>() {
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!("Failed to parse --lines option: '{}': {}", l, e);
-                return Err(1);
-            }
-        },
+        Some(l) => l.parse::<i32>().conv()?,
         None => {
             eprintln!("No value provided for --lines argument");
             return Err(1);

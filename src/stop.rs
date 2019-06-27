@@ -15,19 +15,64 @@
 
 use crate::messaging;
 use crate::messaging::MessageHandler;
-use crate::util::get_pid;
+use crate::util::{get_pid, ExitError};
 use clap::ArgMatches;
+use nix::sys::signal::{kill, SIGKILL};
+use nix::unistd::Pid;
 use serde::Serialize;
+use std::io::Write;
+use std::thread::sleep;
+use std::time::Duration;
+use std::{fs, io};
 
 pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
+    let pid = fs::read_to_string(&pid_file).conv()?;
+    let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
+
+    if sub_m.is_present("KILL") {
+        force_kill(pid);
+        println!("Server killed");
+        return Ok(());
+    }
 
     let message = StopMessage {};
 
-    let chan = messaging::open_message_channel(pid_file)?;
+    println!("Sending stop command to the server..");
+    let chan = messaging::open_message_channel(&pid_file)?;
     chan.send_message::<StopMessage, ()>(message)?;
-    // TODO wait for server to stop / timeout
+
+    if !sub_m.is_present("FORCE") {
+        return Ok(());
+    }
+
+    print!("Waiting for server to exit.");
+    let _ = io::stdout().flush();
+    // If -f is set then we need to wait to see if it fails
+    for _ in 0..20 {
+        if let Err(_) = kill(pid, None) {
+            break;
+        }
+        sleep(Duration::from_millis(500));
+        print!(".");
+        let _ = io::stdout().flush();
+    }
+    println!();
+
+    if let Err(_) = kill(pid, None) {
+        println!("Server exited successfully");
+        return Ok(());
+    }
+
+    println!("Server failed to exit cleanly, killing now");
+    force_kill(pid);
+    println!("Server killed");
+
     return Ok(());
+}
+
+fn force_kill(pid: Pid) {
+    let _ = kill(pid, SIGKILL);
 }
 
 #[derive(Serialize)]

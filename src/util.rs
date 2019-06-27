@@ -15,6 +15,7 @@
 
 use crate::runner;
 use clap::ArgMatches;
+use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::{env, io};
 
@@ -63,6 +64,18 @@ impl<T> ExitError<T> for io::Result<T> {
             Ok(t) => Ok(t),
             Err(e) => {
                 eprintln!("IO Error: {}", e);
+                return Err(1);
+            }
+        };
+    }
+}
+
+impl<T> ExitError<T> for Result<T, ParseIntError> {
+    fn conv(self) -> Result<T, i32> {
+        return match self {
+            Ok(t) => Ok(t),
+            Err(e) => {
+                eprintln!("Failed to parse int: {}", e);
                 return Err(1);
             }
         };
