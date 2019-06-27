@@ -56,6 +56,12 @@ impl MessageHandler for StatusMessage {
 // Response
 #[derive(Serialize, Deserialize, Default)]
 struct StatusMessageResponse {
+    #[serde(rename = "motd")]
+    motd: String,
+    #[serde(rename = "serverName")]
+    server_name: String,
+    #[serde(rename = "serverVersion")]
+    server_version: String,
     #[serde(rename = "numPlayers")]
     num_players: i32,
     #[serde(rename = "worlds")]

@@ -42,10 +42,6 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     let chan = messaging::open_message_channel(&pid_file)?;
     chan.send_message::<StopMessage, ()>(message)?;
 
-    if !sub_m.is_present("FORCE") {
-        return Ok(());
-    }
-
     print!("Waiting for server to exit.");
     let _ = io::stdout().flush();
     // If -f is set then we need to wait to see if it fails
@@ -62,6 +58,11 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     if let Err(_) = kill(pid, None) {
         println!("Server exited successfully");
         return Ok(());
+    }
+
+    if !sub_m.is_present("FORCE") {
+        println!("Server failed to exit cleanly");
+        return Err(1);
     }
 
     println!("Server failed to exit cleanly, killing now");

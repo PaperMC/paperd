@@ -62,10 +62,8 @@ pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), i32
 
     let line_string = lines.to_string();
     let mut args = Vec::<&str>::new();
-    if lines != 0 {
-        args.push("-n");
-        args.push(line_string.as_str());
-    }
+    args.push("-n");
+    args.push(line_string.as_str());
     if follow {
         args.push("-F");
     }
