@@ -17,8 +17,10 @@ use crate::messaging;
 use crate::messaging::MessageHandler;
 use crate::util::{get_pid, ExitError};
 use clap::ArgMatches;
+use nix::errno::Errno::ESRCH;
 use nix::sys::signal::{kill, SIGKILL};
 use nix::unistd::Pid;
+use nix::Error;
 use serde::Serialize;
 use std::io::Write;
 use std::thread::sleep;
@@ -45,7 +47,7 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     print!("Waiting for server to exit.");
     let _ = io::stdout().flush();
     // If -f is set then we need to wait to see if it fails
-    for _ in 0..20 {
+    for _ in 0..30 {
         if let Err(_) = kill(pid, None) {
             break;
         }
@@ -55,9 +57,14 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     }
     println!();
 
-    if let Err(_) = kill(pid, None) {
-        println!("Server exited successfully");
-        return Ok(());
+    if let Err(Error::Sys(e)) = kill(pid, None) {
+        if e == ESRCH {
+            println!("Server exited successfully");
+            return Ok(());
+        } else {
+            println!("Unknown error occurred (stop): {}", e);
+            return Err(1);
+        }
     }
 
     if !sub_m.is_present("FORCE") {

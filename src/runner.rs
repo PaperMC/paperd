@@ -15,10 +15,13 @@
 
 use crate::daemon::{run_daemon, Status};
 use crate::log::{find_log_file, tail};
-use crate::util::find_prog;
+use crate::util::{find_prog, ExitError};
 use clap::ArgMatches;
+use nix::errno::Errno::ESRCH;
 use nix::sys::signal;
+use nix::sys::signal::kill;
 use nix::unistd::Pid;
+use nix::Error;
 use regex::Regex;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
@@ -178,6 +181,32 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
             return Err(1);
         }
     };
+
+    let pid_file = parent_path.join(PID_FILE_NAME);
+    if pid_file.is_file() {
+        let pid = fs::read_to_string(&pid_file).conv()?;
+        let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
+
+        match kill(pid, None) {
+            Ok(()) => {
+                eprintln!(
+                    "Found server already running in this directory with PID {}, will not continue",
+                    pid
+                );
+                return Err(1);
+            }
+            Err(Error::Sys(e)) => {
+                if e == ESRCH {
+                    println!("Found stale PID file, removing");
+                    fs::remove_file(&pid_file).conv()?;
+                } else {
+                    println!("Unknown error occurred (start): {}", e);
+                    return Err(1);
+                }
+            }
+            _ => {}
+        }
+    }
 
     let jvm_args = get_jvm_args(sub_m)?;
 

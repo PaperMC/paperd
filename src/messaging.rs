@@ -16,7 +16,7 @@
 use nix::errno::Errno;
 use nix::libc::{ftok, key_t, msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::ffi::CString;
 use std::mem::size_of;
@@ -89,6 +89,12 @@ pub struct MessageChannel {
     msq_id: i32,
 }
 
+#[derive(Deserialize)]
+struct ServerErrorMessage {
+    #[serde(rename = "error")]
+    error: String,
+}
+
 impl MessageChannel {
     pub fn send_message<T, R>(&self, message: T) -> Result<R, i32>
     where
@@ -137,10 +143,16 @@ impl MessageChannel {
             let msg = receive_message(receive_chan)?;
             return match serde_json::from_str::<R>(msg.as_str()) {
                 Ok(r) => Ok(r),
-                Err(e) => {
-                    eprintln!("Failed to parse response from server: {}", e);
-                    Err(1)
-                }
+                Err(e) => match serde_json::from_str::<ServerErrorMessage>(msg.as_str()) {
+                    Ok(message) => {
+                        eprintln!("{}", message.error);
+                        Err(1)
+                    }
+                    Err(_) => {
+                        eprintln!("Failed to parse response from server: {}", e);
+                        Err(1)
+                    }
+                },
             };
         }
 
