@@ -14,18 +14,34 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use nix::errno::Errno;
-use nix::libc::{ftok, key_t, msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
+use nix::libc::{ftok, key_t, size_t, ssize_t};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::ffi::CString;
 use std::mem::size_of;
-use std::os::raw::{c_long, c_void};
+use std::os::raw::{c_int, c_long, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process;
 use std::ptr::null_mut;
 use std::str::from_utf8;
+
+const IPC_CREAT: c_int = 0o1000;
+const IPC_RMID: c_int = 0;
+
+extern "C" {
+    fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c_int;
+    fn msgget(key: key_t, msgflg: c_int) -> c_int;
+    fn msgrcv(
+        msqid: c_int,
+        msgp: *mut c_void,
+        msgsz: size_t,
+        msgtyp: c_long,
+        msgflg: c_int,
+    ) -> ssize_t;
+    fn msgsnd(msqid: c_int, msgp: *const c_void, msgsz: size_t, msgflg: c_int) -> c_int;
+}
 
 pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
     let pid_file = pid_file.as_ref();
