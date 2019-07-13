@@ -1,6 +1,6 @@
 [package]
 name = "paperd"
-version = "0.1.0"
+version = "1.0.0-snapshot"
 authors = ["Kyle Wood <demonwav@gmail.com>"]
 edition = "2018"
 license = "LGPL-3.0-only"
@@ -12,10 +12,10 @@ codegen-units = 1
 panic = 'abort'
 
 [dependencies]
-clap = "~2.33.0"
+clap = "2.33.0"
 nix = "0.14.1"
-signal-hook = "0.1.9"
-regex = "1"
+signal-hook = "0.1.10"
+regex = "1.1.9"
 sys-info = "0.5.7"
-serde = { version = "1.0.92", features = ["derive"] }
-serde_json = "1.0.39"
+serde = { version = "1.0.94", features = ["derive"] }
+serde_json = "1.0.40"

@@ -26,17 +26,30 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
         .long("pid")
         .takes_value(true);
 
+    let license_text = r"ISSUES:
+    Please submit any bugs or issues with paperd to the paperd issue tracker:
+    https://github.com/PaperMC/paperd/issues
+
+SOURCE:
+    The source code for this program is available on GitHub:
+    https://github.com/PaperMC/paperd
+
+LICENSE:
+    GNU LGPLv3 only (no future versions)
+    https://www.gnu.org/licenses/lgpl-3.0.en.html";
+
     return App::new("paperd")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .setting(AppSettings::GlobalVersion)
-        .version("0.1.0")
+        .version(crate_version!())
         .author("PaperMC (papermc.io)")
         .about("PaperMC server daemon for running and controlling daemonized PaperMC servers.")
         .subcommand(
             SubCommand::with_name("status")
                 .about("Get the status of the currently running server.")
                 .arg(&pid_arg)
-                .display_order(1),
+                .display_order(1)
+                .after_help(license_text),
         )
         .subcommand(
             SubCommand::with_name("send")
@@ -124,6 +137,7 @@ pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
                 .group(ArgGroup::with_name("FORCE_ARGS").args(&["FORCE", "KILL"]))
                 .display_order(3),
         )
+        .after_help(license_text)
         .get_matches();
 }
 
@@ -193,15 +207,16 @@ impl<'a, 'b> JavaArg for App<'a, 'b> {
                     .arg("CUSTOM_ARGS"),
             )
             .after_help(
-                "EXAMPLES:\n    The --default-args argument or the 'CUSTOM_ARGS' \
-                 arguments are mutually exclusive. That is, you can either use --default-args \
-                 OR specify custom arguments, but not both.\n\n    \
-                 Examples:\n        \
-                 $ paperd run -d 10G\n    \
-                 OR\n        \
-                 $ paperd run --default-args 2G\n    \
-                 OR\n        \
-                 $ paperd run -- -Xmx5G -Xms5G",
+                r"EXAMPLES:
+    The --default-args argument or the 'CUSTOM_ARGS' arguments are mutually exclusive. That is, you
+    can either use --default-args OR specify custom arguments, but not both.
+    
+    Examples:
+        $ paperd run -d 10G
+    OR
+        $ paperd run --default-args 2G
+    OR
+        $ paperd run -- -Xmx5G -Xms5G",
             );
     }
 }

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#[macro_use]
 extern crate clap;
 extern crate nix;
 extern crate regex;
