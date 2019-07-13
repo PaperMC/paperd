@@ -14,33 +14,33 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use nix::errno::Errno;
-use nix::libc::{ftok, key_t, size_t, ssize_t};
+use nix::libc::{ftok, key_t};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::ffi::CString;
 use std::mem::size_of;
-use std::os::raw::{c_int, c_long, c_void};
+use std::os::raw::{c_long, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process;
 use std::ptr::null_mut;
 use std::str::from_utf8;
 
-const IPC_CREAT: c_int = 0o1000;
-const IPC_RMID: c_int = 0;
+mod libc {
+    use nix::libc::{key_t, size_t, ssize_t};
+    use std::os::raw::{c_int, c_long, c_void};
 
-extern "C" {
-    fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c_int;
-    fn msgget(key: key_t, msgflg: c_int) -> c_int;
-    fn msgrcv(
-        msqid: c_int,
-        msgp: *mut c_void,
-        msgsz: size_t,
-        msgtyp: c_long,
-        msgflg: c_int,
-    ) -> ssize_t;
-    fn msgsnd(msqid: c_int, msgp: *const c_void, msgsz: size_t, msgflg: c_int) -> c_int;
+    pub const IPC_CREAT: c_int = 0o1000;
+    pub const IPC_RMID: c_int = 0;
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    extern "C" {
+        pub fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c_int;
+        pub fn msgget(key: key_t, msgflg: c_int) -> c_int;
+        pub fn msgrcv(msqid: c_int, msgp: *mut c_void, msgsz: size_t, msgtyp: c_long, msgflg: c_int) -> ssize_t;
+        pub fn msgsnd(msqid: c_int, msgp: *const c_void, msgsz: size_t, msgflg: c_int) -> c_int;
+    }
 }
 
 pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
@@ -66,7 +66,7 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
 
     let msq_id: i32 = unsafe {
         let msg_key = ftok(file_name.as_ptr(), 'P' as i32);
-        msgget(msg_key, 0o666 | IPC_CREAT)
+        libc::msgget(msg_key, 0o666 | libc::IPC_CREAT)
     };
 
     if msq_id == -1 {
@@ -201,7 +201,7 @@ impl MessageChannel {
         message.data.message_length = len;
 
         return unsafe {
-            msgsnd(
+            libc::msgsnd(
                 self.msq_id,
                 &mut message as *mut _ as *mut c_void,
                 size_of::<Data>(),
@@ -214,7 +214,7 @@ impl MessageChannel {
 fn create_receive_channel() -> Result<i32, i32> {
     let pid = process::id();
 
-    let msqid = unsafe { msgget(pid as key_t, 0o666 | IPC_CREAT) };
+    let msqid = unsafe { libc::msgget(pid as key_t, 0o666 | libc::IPC_CREAT) };
     if msqid == -1 {
         let msg = Errno::last().desc();
         eprintln!("Failed to open message channel: {}: {}", msqid, msg);
@@ -241,7 +241,7 @@ fn receive_message(chan_id: i32) -> Result<String, i32> {
     let mut is_done = false;
     while !is_done {
         let res = unsafe {
-            msgrcv(
+            libc::msgrcv(
                 chan_id,
                 &mut message as *mut _ as *mut c_void,
                 size_of::<Data>(),
@@ -261,12 +261,7 @@ fn receive_message(chan_id: i32) -> Result<String, i32> {
 
         const MASK: u8 = 0x80;
         is_done = message.data.message_length & MASK == MASK;
-        let clear: u8 = if is_done {
-            0x7F // clear 1st bit
-        } else {
-            0xFF // do nothing
-        };
-        let len = (message.data.message_length & clear) as usize;
+        let len = (message.data.message_length & 0x7F) as usize;
 
         {
             let data = &message.data.message[..len];
@@ -274,7 +269,7 @@ fn receive_message(chan_id: i32) -> Result<String, i32> {
         }
     }
 
-    let res = unsafe { msgctl(chan_id, IPC_RMID, null_mut()) };
+    let res = unsafe { libc::msgctl(chan_id, libc::IPC_RMID, null_mut()) };
     if res == -1 {
         let msg = Errno::last().desc();
         eprintln!("Failed to cleanup message channel: {}: {}", chan_id, msg);
