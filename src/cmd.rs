@@ -137,6 +137,22 @@ LICENSE:
                 .group(ArgGroup::with_name("FORCE_ARGS").args(&["FORCE", "KILL"]))
                 .display_order(3),
         )
+        .subcommand(
+            SubCommand::with_name("restart")
+                .about(
+                    "Tell the server to shutdown with an exit code telling paperd to restart. \
+                     This will re-use the precise command-line the original command invocation \
+                     used, but if the jar has been replaced it will be used instead of the \
+                     original jar. The paperd instance will not be changed if it has been updated,\
+                     however, as it does not restart.",
+                )
+                .arg(&pid_arg)
+                .arg(tail_arg(
+                    "Tail the server log after asking the server to restart. Press \
+                     C-c to quit.",
+                ))
+                .display_order(3),
+        )
         .after_help(license_text)
         .get_matches();
 }

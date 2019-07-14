@@ -26,6 +26,7 @@ mod cmd;
 mod daemon;
 mod log;
 mod messaging;
+mod restart;
 mod runner;
 mod send;
 mod status;
@@ -34,6 +35,7 @@ mod util;
 
 use crate::cmd::handle_cmd_line;
 use crate::log::log;
+use crate::restart::restart;
 use crate::runner::{run_cmd, start};
 use crate::send::send;
 use crate::status::status;
@@ -54,6 +56,7 @@ fn run() -> i32 {
         ("start", Some(sub_m)) => start(sub_m),
         ("run", Some(sub_m)) => run_cmd(sub_m),
         ("stop", Some(sub_m)) => stop(sub_m),
+        ("restart", Some(sub_m)) => restart(sub_m),
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");

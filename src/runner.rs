@@ -34,6 +34,7 @@ use std::{fs, thread};
 use sys_info::mem_info;
 
 pub const PID_FILE_NAME: &str = "paper.pid";
+const RESTART_EXIT_CODE: i32 = 27;
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
@@ -72,24 +73,31 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     env.args
         .push("-Dio.papermc.daemon.enabled=true".to_string());
 
-    let child = start_process(&env)?;
+    let mut result: i32;
+    loop {
+        let child = start_process(&env)?;
 
-    let pid = child.id();
+        let pid = child.id();
 
-    // Write pid file
-    let pid_file = env.working_dir.join(PID_FILE_NAME);
-    let pid_file = pid_file.as_path();
-    if let Err(_) = fs::write(pid_file, pid.to_string()) {
-        return Err(1);
+        // Write pid file
+        let pid_file = env.working_dir.join(PID_FILE_NAME);
+        let pid_file = pid_file.as_path();
+        if let Err(_) = fs::write(pid_file, pid.to_string()) {
+            return Err(1);
+        }
+
+        let signals = forward_signals(pid)?;
+
+        result = wait_for_child(child);
+
+        signals.close();
+
+        let _ = fs::remove_file(pid_file);
+
+        if result != RESTART_EXIT_CODE {
+            break;
+        }
     }
-
-    let signals = forward_signals(pid)?;
-
-    let result = wait_for_child(child);
-
-    signals.close();
-
-    let _ = fs::remove_file(pid_file);
 
     return Err(result);
 }
