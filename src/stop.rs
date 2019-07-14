@@ -23,6 +23,7 @@ use nix::unistd::Pid;
 use nix::Error;
 use serde::Serialize;
 use std::io::Write;
+use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, io};
@@ -33,7 +34,7 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
 
     if sub_m.is_present("KILL") {
-        force_kill(pid);
+        force_kill(pid_file, pid);
         println!("Server killed");
         return Ok(());
     }
@@ -73,14 +74,19 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     }
 
     println!("Server failed to exit cleanly, killing now");
-    force_kill(pid);
+    force_kill(pid_file, pid);
     println!("Server killed");
 
     return Ok(());
 }
 
-fn force_kill(pid: Pid) {
+fn force_kill<P: AsRef<Path>>(pid_file: P, pid: Pid) {
     let _ = kill(pid, SIGKILL);
+    // The server won't have had a chance to close this themselves
+    if let Ok(chan) = messaging::open_message_channel(&pid_file) {
+        let _ = chan.close();
+    }
+    let _ = fs::remove_file(&pid_file);
 }
 
 #[derive(Serialize)]

@@ -155,9 +155,7 @@ impl MessageChannel {
         }
 
         if exp_resp {
-            return Ok(Some(ResponseChannel {
-                response_chan: receive_chan,
-            }));
+            return Ok(Some(ResponseChannel::new(receive_chan)));
         }
 
         return Ok(None);
@@ -197,6 +195,10 @@ impl MessageChannel {
             )
         };
     }
+
+    pub fn close(&self) -> Result<(), i32> {
+        return close(self.msq_id);
+    }
 }
 
 fn create_receive_channel() -> Result<i32, i32> {
@@ -217,6 +219,12 @@ pub struct ResponseChannel {
 }
 
 impl ResponseChannel {
+    pub fn new(chan: i32) -> ResponseChannel {
+        return ResponseChannel {
+            response_chan: chan,
+        };
+    }
+
     pub fn receive_message<R: DeserializeOwned>(&self) -> Result<R, i32> {
         let mut message = Message {
             m_type: MESSAGE_TYPE,
@@ -286,15 +294,16 @@ impl ResponseChannel {
     }
 
     pub fn close(&self) -> Result<(), i32> {
-        let res = unsafe { libc::msgctl(self.response_chan, libc::IPC_RMID, null_mut()) };
-        if res == -1 {
-            let msg = Errno::last().desc();
-            eprintln!(
-                "Failed to cleanup message channel: {}: {}",
-                self.response_chan, msg
-            );
-            return Err(1);
-        }
-        return Ok(());
+        return close(self.response_chan);
     }
+}
+
+fn close(msq_id: i32) -> Result<(), i32> {
+    let res = unsafe { libc::msgctl(msq_id, libc::IPC_RMID, null_mut()) };
+    if res == -1 {
+        let msg = Errno::last().desc();
+        eprintln!("Failed to cleanup message channel: {}: {}", msq_id, msg);
+        return Err(1);
+    }
+    return Ok(());
 }
