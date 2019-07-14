@@ -57,7 +57,7 @@ pub fn find_prog(searches: &[(&str, &str)]) -> Option<PathBuf> {
 
 pub fn mc_colors(s: &str) -> String {
     // TODO maybe convert these to ANSI color later?
-    let re = Regex::new("§[a-fA-F0-9k-oK-OrR]").unwrap();
+    let re = Regex::new(r"§[a-fA-F0-9k-oK-OrR]").unwrap();
     return re.replace_all(s, "").to_string();
 }
 
