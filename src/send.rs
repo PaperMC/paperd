@@ -36,7 +36,7 @@ pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
     };
 
     let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<SendCommandMessage, ()>(message)?;
+    chan.send_message::<SendCommandMessage>(message)?;
 
     if sub_m.is_present("TAIL") {
         let log_file = find_log_file(&pid_file)?;

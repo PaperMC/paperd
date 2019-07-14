@@ -13,41 +13,55 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::log::{find_log_file, tail};
 use crate::messaging;
 use crate::messaging::MessageHandler;
-use crate::util::get_pid;
+use crate::util::{get_pid, mc_colors};
 use clap::ArgMatches;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-pub fn restart(sub_m: &ArgMatches) -> Result<(), i32> {
+pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
 
-    let message = RestartMessage {};
-
-    println!("Sending restart request...");
+    let message = TimingsMessage {};
 
     let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<RestartMessage>(message)?;
+    let response_chan = chan
+        .send_message::<TimingsMessage>(message)?
+        .expect("Failed to create response channel");
 
-    if sub_m.is_present("TAIL") {
-        let log_file = find_log_file(&pid_file)?;
-        return tail(log_file, 0, true);
+    loop {
+        let res = response_chan.receive_message::<TimingsMessageResponse>()?;
+        if res.done {
+            break;
+        }
+        if res.message.is_some() {
+            println!("{}", mc_colors(res.message.unwrap().as_str()));
+        }
     }
+    response_chan.close()?;
 
     return Ok(());
 }
 
 // Request
 #[derive(Serialize)]
-struct RestartMessage {}
+struct TimingsMessage {}
 
-impl MessageHandler for RestartMessage {
+impl MessageHandler for TimingsMessage {
     fn type_id() -> i16 {
-        return 3;
+        return 4;
     }
 
     fn expect_response() -> bool {
-        return false;
+        return true;
     }
+}
+
+// Response
+#[derive(Serialize, Deserialize)]
+struct TimingsMessageResponse {
+    #[serde(rename = "message")]
+    message: Option<String>,
+    #[serde(rename = "done")]
+    done: bool,
 }

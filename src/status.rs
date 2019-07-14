@@ -25,9 +25,20 @@ pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
     let message = StatusMessage {};
 
     let chan = messaging::open_message_channel(&pid_file)?;
-    let res = chan.send_message::<StatusMessage, StatusMessageResponse>(message)?;
+    let response_chan = chan
+        .send_message::<StatusMessage>(message)?
+        .expect("Failed to create response channel");
 
-    let text = match serde_json::to_string_pretty(&res) {
+    let res = response_chan.receive_message::<StatusMessageResponse>()?;
+    response_chan.close()?;
+
+    output_status(&res)?;
+
+    return Ok(());
+}
+
+fn output_status(status: &StatusMessageResponse) -> Result<(), i32> {
+    let text = match serde_json::to_string_pretty(status) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to generate response: {}", e);
@@ -36,6 +47,7 @@ pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
     };
 
     println!("{}", text);
+
     return Ok(());
 }
 
@@ -62,6 +74,8 @@ struct StatusMessageResponse {
     server_name: String,
     #[serde(rename = "serverVersion")]
     server_version: String,
+    #[serde(rename = "apiVersion")]
+    api_version: String,
     #[serde(rename = "numPlayers")]
     num_players: i32,
     #[serde(rename = "worlds")]

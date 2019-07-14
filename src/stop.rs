@@ -42,7 +42,7 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
 
     println!("Sending stop command to the server..");
     let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<StopMessage, ()>(message)?;
+    chan.send_message::<StopMessage>(message)?;
 
     print!("Waiting for server to exit.");
     let _ = io::stdout().flush();

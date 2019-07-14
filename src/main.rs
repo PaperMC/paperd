@@ -31,6 +31,7 @@ mod runner;
 mod send;
 mod status;
 mod stop;
+mod timings;
 mod util;
 
 use crate::cmd::handle_cmd_line;
@@ -40,6 +41,7 @@ use crate::runner::{run_cmd, start};
 use crate::send::send;
 use crate::status::status;
 use crate::stop::stop;
+use crate::timings::timings;
 use std::process::exit;
 
 fn main() {
@@ -57,6 +59,7 @@ fn run() -> i32 {
         ("run", Some(sub_m)) => run_cmd(sub_m),
         ("stop", Some(sub_m)) => stop(sub_m),
         ("restart", Some(sub_m)) => restart(sub_m),
+        ("timings", Some(sub_m)) => timings(sub_m),
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");

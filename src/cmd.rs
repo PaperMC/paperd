@@ -89,6 +89,12 @@ LICENSE:
                 .display_order(1),
         )
         .subcommand(
+            SubCommand::with_name("timings")
+                .about("If timings is enabled, generate a report and return the URL.")
+                .arg(&pid_arg)
+                .display_order(1),
+        )
+        .subcommand(
             SubCommand::with_name("start")
                 .about("Start the MC server in the background.")
                 .arg(tail_arg(

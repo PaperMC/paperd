@@ -15,6 +15,7 @@
 
 use crate::runner;
 use clap::ArgMatches;
+use regex::Regex;
 use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::{env, io};
@@ -52,6 +53,12 @@ pub fn find_prog(searches: &[(&str, &str)]) -> Option<PathBuf> {
             })
         })
         .next();
+}
+
+pub fn mc_colors(s: &str) -> String {
+    // TODO maybe convert these to ANSI color later?
+    let re = Regex::new("§[a-fA-F0-9k-oK-OrR]").unwrap();
+    return re.replace_all(s, "").to_string();
 }
 
 pub trait ExitError<T> {

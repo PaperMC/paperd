@@ -112,10 +112,9 @@ struct ServerErrorMessage {
 }
 
 impl MessageChannel {
-    pub fn send_message<T, R>(&self, message: T) -> Result<R, i32>
+    pub fn send_message<T>(&self, message: T) -> Result<Option<ResponseChannel>, i32>
     where
         T: MessageHandler + Serialize,
-        R: DeserializeOwned + Default,
     {
         let exp_resp = T::expect_response();
         let receive_chan = if exp_resp {
@@ -156,23 +155,12 @@ impl MessageChannel {
         }
 
         if exp_resp {
-            let msg = receive_message(receive_chan)?;
-            return match serde_json::from_str::<R>(msg.as_str()) {
-                Ok(r) => Ok(r),
-                Err(e) => match serde_json::from_str::<ServerErrorMessage>(msg.as_str()) {
-                    Ok(message) => {
-                        eprintln!("{}", message.error);
-                        Err(1)
-                    }
-                    Err(_) => {
-                        eprintln!("Failed to parse response from server: {}", e);
-                        Err(1)
-                    }
-                },
-            };
+            return Ok(Some(ResponseChannel {
+                response_chan: receive_chan,
+            }));
         }
 
-        return Ok(R::default());
+        return Ok(None);
     }
 
     fn send_paged_message(&self, type_id: i16, receive_chan: i32, msg: &[u8], fin: bool) -> i32 {
@@ -224,63 +212,89 @@ fn create_receive_channel() -> Result<i32, i32> {
     return Ok(msqid);
 }
 
-fn receive_message(chan_id: i32) -> Result<String, i32> {
-    let mut message = Message {
-        m_type: MESSAGE_TYPE,
-        data: Data {
-            response_chan: 0,
-            response_pid: 0,
-            message_type: 0,
-            message_length: 0,
-            message: [0; MESSAGE_LENGTH],
-        },
-    };
+pub struct ResponseChannel {
+    response_chan: i32,
+}
 
-    let mut buffer = Vec::<u8>::new();
-
-    let mut is_done = false;
-    while !is_done {
-        let res = unsafe {
-            libc::msgrcv(
-                chan_id,
-                &mut message as *mut _ as *mut c_void,
-                size_of::<Data>(),
-                MESSAGE_TYPE,
-                0,
-            )
+impl ResponseChannel {
+    pub fn receive_message<R: DeserializeOwned>(&self) -> Result<R, i32> {
+        let mut message = Message {
+            m_type: MESSAGE_TYPE,
+            data: Data {
+                response_chan: 0,
+                response_pid: 0,
+                message_type: 0,
+                message_length: 0,
+                message: [0; MESSAGE_LENGTH],
+            },
         };
 
+        let mut buffer = Vec::<u8>::new();
+
+        let mut is_done = false;
+        while !is_done {
+            let res = unsafe {
+                libc::msgrcv(
+                    self.response_chan,
+                    &mut message as *mut _ as *mut c_void,
+                    size_of::<Data>(),
+                    MESSAGE_TYPE,
+                    0,
+                )
+            };
+
+            if res == -1 {
+                let msg = Errno::last().desc();
+                eprintln!(
+                    "Failed to receive message from channel: {}: {}",
+                    self.response_chan, msg
+                );
+                return Err(1);
+            }
+
+            const MASK: u8 = 0x80;
+            is_done = message.data.message_length & MASK == MASK;
+            let len = (message.data.message_length & 0x7F) as usize;
+
+            {
+                let data = &message.data.message[..len];
+                buffer.extend(data);
+            }
+        }
+
+        let text = match from_utf8(buffer.as_slice()) {
+            Ok(s) => s.to_string(),
+            Err(e) => {
+                eprintln!("Failed to decode response from server: {}", e);
+                return Err(1);
+            }
+        };
+
+        return match serde_json::from_str::<R>(text.as_str()) {
+            Ok(r) => Ok(r),
+            Err(e) => match serde_json::from_str::<ServerErrorMessage>(text.as_str()) {
+                Ok(message) => {
+                    eprintln!("{}", message.error);
+                    Err(1)
+                }
+                Err(_) => {
+                    eprintln!("Failed to parse response from server: {}", e);
+                    Err(1)
+                }
+            },
+        };
+    }
+
+    pub fn close(&self) -> Result<(), i32> {
+        let res = unsafe { libc::msgctl(self.response_chan, libc::IPC_RMID, null_mut()) };
         if res == -1 {
             let msg = Errno::last().desc();
             eprintln!(
-                "Failed to receive message from channel: {}: {}",
-                chan_id, msg
+                "Failed to cleanup message channel: {}: {}",
+                self.response_chan, msg
             );
             return Err(1);
         }
-
-        const MASK: u8 = 0x80;
-        is_done = message.data.message_length & MASK == MASK;
-        let len = (message.data.message_length & 0x7F) as usize;
-
-        {
-            let data = &message.data.message[..len];
-            buffer.extend(data);
-        }
+        return Ok(());
     }
-
-    let res = unsafe { libc::msgctl(chan_id, libc::IPC_RMID, null_mut()) };
-    if res == -1 {
-        let msg = Errno::last().desc();
-        eprintln!("Failed to cleanup message channel: {}: {}", chan_id, msg);
-        return Err(1);
-    }
-
-    return match from_utf8(buffer.as_slice()) {
-        Ok(s) => Ok(s.to_string()),
-        Err(e) => {
-            eprintln!("Failed to decode response from server: {}", e);
-            return Err(1);
-        }
-    };
 }
