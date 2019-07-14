@@ -147,9 +147,9 @@ LICENSE:
             SubCommand::with_name("restart")
                 .about(
                     "Tell the server to shutdown with an exit code telling paperd to restart. \
-                     This will re-use the precise command-line the original command invocation \
+                     This will reuse the same command-line the original command invocation \
                      used, but if the jar has been replaced it will be used instead of the \
-                     original jar. The paperd instance will not be changed if it has been updated,\
+                     original jar. The paperd instance will not be changed if it has been updated, \
                      however, as it does not restart.",
                 )
                 .arg(&pid_arg)
