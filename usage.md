@@ -14,7 +14,7 @@ To install `paperd` simply [download the latest release from Jenkins](https://pa
 your server:
 
 ```sh
-wget https://papermc.io/ci/view/all/job/paperd/lastSuccessfulBuild/artifact/paperd.tar.xz
+curl https://papermc.io/ci/view/all/job/paperd/lastSuccessfulBuild/artifact/paperd.tar.xz -o paperd.tar.xz
 ```
 
 Unpack the `.tar.xz` file to get the `paperd` binary:
