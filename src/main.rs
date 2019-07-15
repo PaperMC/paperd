@@ -42,6 +42,8 @@ use crate::send::send;
 use crate::status::status;
 use crate::stop::stop;
 use crate::timings::timings;
+use clap::Shell;
+use std::io;
 use std::process::exit;
 
 fn main() {
@@ -49,7 +51,7 @@ fn main() {
 }
 
 fn run() -> i32 {
-    let matches = handle_cmd_line();
+    let matches = handle_cmd_line().get_matches();
 
     let ret = match matches.subcommand() {
         ("status", Some(sub_m)) => status(sub_m),
@@ -60,6 +62,15 @@ fn run() -> i32 {
         ("stop", Some(sub_m)) => stop(sub_m),
         ("restart", Some(sub_m)) => restart(sub_m),
         ("timings", Some(sub_m)) => timings(sub_m),
+        ("completions", Some(sub_m)) => {
+            let shell = sub_m.value_of("SHELL").unwrap();
+            handle_cmd_line().gen_completions_to(
+                "paperd",
+                shell.parse::<Shell>().unwrap(),
+                &mut io::stdout(),
+            );
+            Ok(())
+        }
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");

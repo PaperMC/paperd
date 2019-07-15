@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
+use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 
-pub fn handle_cmd_line<'a>() -> ArgMatches<'a> {
+pub fn handle_cmd_line<'a, 'b>() -> App<'a, 'b> {
     let pid_arg = Arg::with_name("PID")
         .help(
             "Custom PID file to send commands to a running server. If not set, the \
@@ -159,8 +159,19 @@ LICENSE:
                 ))
                 .display_order(3),
         )
-        .after_help(license_text)
-        .get_matches();
+        .subcommand(
+            SubCommand::with_name("completions")
+                .about("Generate completion scripts for your shell")
+                .setting(AppSettings::ArgRequiredElseHelp)
+                .arg(
+                    Arg::with_name("SHELL")
+                        .help("The shell to generate the completion script for")
+                        .possible_values(&["bash", "zsh", "fish"]),
+                )
+                .after_help(COMPLETIONS_HELP)
+                .display_order(4),
+        )
+        .after_help(license_text);
 }
 
 trait JavaArg {
@@ -246,3 +257,87 @@ impl<'a, 'b> JavaArg for App<'a, 'b> {
 fn tail_arg(message: &str) -> Arg {
     return Arg::with_name("TAIL").help(message).short("t").long("tail");
 }
+
+// This excellent description was taken from rustup
+// https://github.com/rust-lang/rustup.rs/blob/256488923d3fb2637b7d706002b3e6d2db917590/src/cli/help.rs#L156
+pub static COMPLETIONS_HELP: &str = r"DISCUSSION:
+    One can generate a completion script for `paperd` that is
+    compatible with a given shell. The script is output on `stdout`
+    allowing one to re-direct the output to the file of their
+    choosing. Where you place the file will depend on which shell, and
+    which operating system you are using. Your particular
+    configuration may also determine where these scripts need to be
+    placed.
+
+    Here are some common set ups for the three supported shells under
+    Unix and similar operating systems (such as GNU/Linux).
+
+    BASH:
+
+    Completion files are commonly stored in `/etc/bash_completion.d/` for
+    system-wide commands, but can be stored in
+    `~/.local/share/bash-completion/completions` for user-specific commands.
+    Run the command:
+
+        $ mkdir -p ~/.local/share/bash-completion/completions
+        $ paperd completions bash >> ~/.local/share/bash-completion/completions/paperd
+
+    This installs the completion script. You may have to log out and
+    log back in to your shell session for the changes to take affect.
+
+    BASH (macOS/Homebrew):
+
+    Homebrew stores bash completion files within the Homebrew directory.
+    With the `bash-completion` brew formula installed, run the command:
+
+        $ mkdir -p $(brew --prefix)/etc/bash_completion.d
+        $ paperd completions bash > $(brew --prefix)/etc/bash_completion.d/paperd.bash-completion
+
+    FISH:
+
+    Fish completion files are commonly stored in
+    `$HOME/.config/fish/completions`. Run the command:
+
+        $ mkdir -p ~/.config/fish/completions
+        $ paperd completions fish > ~/.config/fish/completions/paperd.fish
+
+    This installs the completion script. You may have to log out and
+    log back in to your shell session for the changes to take affect.
+
+    ZSH:
+
+    ZSH completions are commonly stored in any directory listed in
+    your `$fpath` variable. To use these completions, you must either
+    add the generated script to one of those directories, or add your
+    own to this list.
+
+    Adding a custom directory is often the safest bet if you are
+    unsure of which directory to use. First create the directory; for
+    this example we'll create a hidden directory inside our `$HOME`
+    directory:
+
+        $ mkdir ~/.zfunc
+
+    Then add the following lines to your `.zshrc` just before
+    `compinit`:
+
+        fpath+=~/.zfunc
+
+    Now you can install the completions script using the following
+    command:
+
+        $ paperd completions zsh > ~/.zfunc/_paperd
+
+    You must then either log out and log back in, or simply run
+
+        $ exec zsh
+
+    for the new completions to take affect.
+
+    CUSTOM LOCATIONS:
+
+    Alternatively, you could save these files to the place of your
+    choosing, such as a custom directory inside your $HOME. Doing so
+    will require you to add the proper directives, such as `source`ing
+    inside your login script. Consult your shells documentation for
+    how to add such directives.";
