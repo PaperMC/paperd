@@ -1,4 +1,4 @@
-paperd [![Current Release](https://img.shields.io/badge/release-1.0.0-orange.svg?style=flat-square)](https://papermc.io/ci/job/paperd/)
+paperd [![Current Release](https://img.shields.io/badge/release-1.0.0-orange.svg)](https://papermc.io/ci/job/paperd/)
 ======
 
 | Build          | Status |
