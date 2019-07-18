@@ -15,6 +15,7 @@
 
 use crate::daemon::{run_daemon, Status};
 use crate::log::{find_log_file, tail};
+use crate::protocol::check_jar_protocol;
 use crate::util::{find_prog, ExitError};
 use clap::ArgMatches;
 use nix::errno::Errno::ESRCH;
@@ -40,6 +41,8 @@ const RESTART_EXIT_CODE: i32 = 27;
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
+
+    check_jar_protocol(&env.jar_file)?;
 
     let mut lib_file = std::env::temp_dir();
     lib_file.push("libpaperd_jni.so.gz");

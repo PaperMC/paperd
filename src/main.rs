@@ -21,11 +21,13 @@ extern crate serde;
 extern crate serde_json;
 extern crate signal_hook;
 extern crate sys_info;
+extern crate zip;
 
 mod cmd;
 mod daemon;
 mod log;
 mod messaging;
+mod protocol;
 mod restart;
 mod runner;
 mod send;
