@@ -21,13 +21,12 @@ Building
 This project requires the [Rust](https://www.rust-lang.org/) toolchain. `paperd` is built on the latest release of Rust,
 currently version `1.36.0`. 
 
-To build for release, simply use the following commands:
+To build for release, use the build.sh script:
 ```sh
-cargo build --release
-strip target/release/paperd
-# To create the .tar.xz file available from Jenkins, use the following command:
-XZ_OPT=-9 tar -Jcvf paperd.tar.xz --transform='s|target/release/||g' target/release/paperd
+./build.sh clean build --release
 ```
+
+The `paperd.tar.xz` file that will result in the current working directory is the pre-built file available from Jenkins.
 
 Documentation
 -------------

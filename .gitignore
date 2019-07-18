@@ -1,6 +1,10 @@
+paperd.tar.xz
+
 .idea/
 
 /target
+/paperd-lib/target
+/paperd-jni/target
 **/*.rs.bk
 
 ### Linux ###

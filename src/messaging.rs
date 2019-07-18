@@ -15,33 +15,19 @@
 
 use nix::errno::Errno;
 use nix::libc::{ftok, key_t};
+use paperd_lib::libc::{msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
+use paperd_lib::{Data, Message, MESSAGE_LENGTH, MESSAGE_TYPE};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::ffi::CString;
 use std::mem::size_of;
-use std::os::raw::{c_long, c_void};
+use std::os::raw::c_void;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process;
 use std::ptr::null_mut;
 use std::str::from_utf8;
-
-mod libc {
-    use nix::libc::{key_t, size_t, ssize_t};
-    use std::os::raw::{c_int, c_long, c_void};
-
-    pub const IPC_CREAT: c_int = 0o1000;
-    pub const IPC_RMID: c_int = 0;
-
-    #[cfg_attr(rustfmt, rustfmt_skip)]
-    extern "C" {
-        pub fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c_int;
-        pub fn msgget(key: key_t, msgflg: c_int) -> c_int;
-        pub fn msgrcv(msqid: c_int, msgp: *mut c_void, msgsz: size_t, msgtyp: c_long, msgflg: c_int) -> ssize_t;
-        pub fn msgsnd(msqid: c_int, msgp: *const c_void, msgsz: size_t, msgflg: c_int) -> c_int;
-    }
-}
 
 pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
     let pid_file = pid_file.as_ref();
@@ -66,7 +52,7 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
 
     let msq_id: i32 = unsafe {
         let msg_key = ftok(file_name.as_ptr(), 'P' as i32);
-        libc::msgget(msg_key, 0o666 | libc::IPC_CREAT)
+        msgget(msg_key, 0o666 | IPC_CREAT)
     };
 
     if msq_id == -1 {
@@ -76,24 +62,6 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
     }
 
     return Ok(MessageChannel { msq_id });
-}
-
-const MESSAGE_TYPE: c_long = 0x7654;
-const MESSAGE_LENGTH: usize = 100;
-
-#[repr(C)]
-struct Message {
-    m_type: c_long,
-    data: Data,
-}
-
-#[repr(C)]
-struct Data {
-    response_chan: i32,
-    response_pid: u32,
-    message_type: i16,
-    message_length: u8,
-    message: [u8; MESSAGE_LENGTH],
 }
 
 pub trait MessageHandler {
@@ -187,7 +155,7 @@ impl MessageChannel {
         message.data.message_length = len;
 
         return unsafe {
-            libc::msgsnd(
+            msgsnd(
                 self.msq_id,
                 &mut message as *mut _ as *mut c_void,
                 size_of::<Data>(),
@@ -204,7 +172,7 @@ impl MessageChannel {
 fn create_receive_channel() -> Result<i32, i32> {
     let pid = process::id();
 
-    let msqid = unsafe { libc::msgget(pid as key_t, 0o666 | libc::IPC_CREAT) };
+    let msqid = unsafe { msgget(pid as key_t, 0o666 | IPC_CREAT) };
     if msqid == -1 {
         let msg = Errno::last().desc();
         eprintln!("Failed to open message channel: {}: {}", msqid, msg);
@@ -242,7 +210,7 @@ impl ResponseChannel {
         let mut is_done = false;
         while !is_done {
             let res = unsafe {
-                libc::msgrcv(
+                msgrcv(
                     self.response_chan,
                     &mut message as *mut _ as *mut c_void,
                     size_of::<Data>(),
@@ -299,7 +267,7 @@ impl ResponseChannel {
 }
 
 fn close(msq_id: i32) -> Result<(), i32> {
-    let res = unsafe { libc::msgctl(msq_id, libc::IPC_RMID, null_mut()) };
+    let res = unsafe { msgctl(msq_id, IPC_RMID, null_mut()) };
     if res == -1 {
         let msg = Errno::last().desc();
         eprintln!("Failed to cleanup message channel: {}: {}", msq_id, msg);

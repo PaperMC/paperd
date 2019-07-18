@@ -9,3 +9,5 @@ matrix:
     - rust: nightly
   fast_finish: true
 cache: cargo
+script:
+  - ./build.sh build

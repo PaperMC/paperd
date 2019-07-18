@@ -1,9 +1,11 @@
 [package]
-name = "paperd"
+name = "paperd-jni"
 version = "1.1.0-snapshot"
 authors = ["Kyle Wood <demonwav@gmail.com>"]
 edition = "2018"
-license = "LGPL-3.0-only"
+
+[lib]
+crate_type = ["cdylib"]
 
 [profile.release]
 opt-level = 'z'  # Optimize for size.
@@ -12,11 +14,6 @@ codegen-units = 1
 panic = 'abort'
 
 [dependencies]
-clap = "2.33.0"
+jni = "0.13.0"
 nix = "0.14.1"
-signal-hook = "0.1.10"
-regex = "1.1.9"
-sys-info = "0.5.7"
-serde = { version = "1.0.94", features = ["derive"] }
-serde_json = "1.0.40"
-paperd-lib = { path = "./paperd-lib/" }
+paperd-lib = { path = "../paperd-lib/" }

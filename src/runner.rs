@@ -33,11 +33,28 @@ use std::time::{Duration, Instant};
 use std::{fs, thread};
 use sys_info::mem_info;
 
+static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
+
 pub const PID_FILE_NAME: &str = "paper.pid";
 const RESTART_EXIT_CODE: i32 = 27;
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
+
+    let mut lib_file = std::env::temp_dir();
+    lib_file.push("libpaperd_jni.so.gz");
+    // Find a file name that is available..
+    let mut count = 1;
+    while lib_file.exists() {
+        lib_file.pop();
+        lib_file.push(format!("libpaperd_jni.so.gz.{}", count));
+        count += 1;
+    }
+
+    if let Err(e) = fs::write(&lib_file, JNI_LIB) {
+        eprintln!("Failed to write JNI library to temp directory: {}", e);
+        return Err(1);
+    }
 
     match run_daemon() {
         Ok(Status::QUIT(pid)) => {
@@ -72,6 +89,10 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let mut env = env;
     env.args
         .push("-Dio.papermc.daemon.enabled=true".to_string());
+    env.args.push(format!(
+        "-Dio.papermc.daemon.paperd.binary={}",
+        lib_file.to_string_lossy()
+    ));
 
     let mut result: i32;
     loop {
@@ -83,7 +104,8 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
         let pid_file = env.working_dir.join(PID_FILE_NAME);
         let pid_file = pid_file.as_path();
         if let Err(_) = fs::write(pid_file, pid.to_string()) {
-            return Err(1);
+            result = 1;
+            break;
         }
 
         let signals = forward_signals(pid)?;
@@ -97,6 +119,17 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
         if result != RESTART_EXIT_CODE {
             break;
         }
+    }
+
+    // Attempt to cleanup a little
+    if lib_file.exists() {
+        if let Ok(data) = fs::read_to_string(&lib_file) {
+            let path = PathBuf::from(data);
+            if path.exists() {
+                let _ = fs::remove_file(&path);
+            }
+        }
+        let _ = fs::remove_file(&lib_file);
     }
 
     return Err(result);
