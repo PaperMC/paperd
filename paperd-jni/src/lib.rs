@@ -42,19 +42,19 @@ use paperd_lib::{Data, Message, MESSAGE_TYPE};
 // static const strings and integers) in the concat! macro
 macro_rules! data_class {
     () => {
-        "com/destroystokyo/paper/PaperDaemonJni$Data"
+        "com/destroystokyo/paper/daemon/Data"
     };
 }
 
 macro_rules! message_class {
     () => {
-        "com/destroystokyo/paper/PaperDaemonJni$MsgBuf"
+        "com/destroystokyo/paper/daemon/MsgBuf"
     };
 }
 
 macro_rules! message_field_name {
     () => {
-        "com.destroystokyo.paper.PaperDaemonJni$Data.message"
+        "com.destroystokyo.paper.daemon.Data.message"
     };
 }
 

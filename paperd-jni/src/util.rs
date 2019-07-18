@@ -44,7 +44,7 @@ pub fn get_path_string(env: &JNIEnv, path: JObject) -> Result<String, ()> {
 
 pub fn throw(env: &JNIEnv, message: &str) {
     let _ = env.throw((
-        "com/destroystokyo/paper/PaperDaemonJni$NativeErrorException",
+        "com/destroystokyo/paper/daemon/NativeErrorException",
         message,
     ));
 }
