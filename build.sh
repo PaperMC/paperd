@@ -17,17 +17,29 @@
 
 set -e
 
+function __strip() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        strip -x "$1"
+    else
+        strip "$1"
+    fi
+}
+
 function strip_paperd() {
     paperd_lib="$1"
 
-    mapfile -t symbols < <(nm "$paperd_lib" | grep Java_com_destroystokyo_paper | awk '{print $3}')
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        strip -x "$paperd_lib"
+    else
+        mapfile -t symbols < <(nm "$paperd_lib" | grep Java_com_destroystokyo_paper | awk '{print $3}')
 
-    for symbol in "${symbols[@]}"; do
-        out_args+=("-K")
-        out_args+=("$symbol")
-    done
+        for symbol in "${symbols[@]}"; do
+            out_args+=("-K")
+            out_args+=("$symbol")
+        done
 
-    strip "${out_args[@]}" "$paperd_lib"
+        strip "${out_args[@]}" "$paperd_lib"
+    fi
 }
 
 function help() {
@@ -50,12 +62,13 @@ while [[ -n "$1" ]]; do
         )
         ;;
     "build")
+        exten="$(if [[ "$OSTYPE" == "darwin"* ]]; then echo "dylib"; else echo "so"; fi)"
         if [[ "$2" == "--release" ]]; then
             rel="true"
-            lib_file="target/release/libpaperd_jni.so"
+            lib_file="target/release/libpaperd_jni.$exten"
             shift
         else
-            lib_file="target/debug/libpaperd_jni.so"
+            lib_file="target/debug/libpaperd_jni.$exten"
         fi
 
         (
@@ -68,7 +81,7 @@ while [[ -n "$1" ]]; do
             fi
 
             if [[ -n "$rel" ]]; then
-                echo "Stripping unneeded symbols from libpaperd_jni.so"
+                echo "Stripping unneeded symbols from libpaperd_jni.$exten"
                 strip_paperd "$lib_file"
             fi
 
@@ -88,7 +101,11 @@ while [[ -n "$1" ]]; do
 
         if [[ -n "$rel" ]]; then
             echo "Stripping unneeded symbols from paperd"
-            strip target/release/paperd
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                strip -x "target/release/paperd"
+            else
+                strip "target/release/paperd"
+            fi
         fi
 
         echo "Packaging paperd binary"
