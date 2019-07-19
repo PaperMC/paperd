@@ -87,14 +87,14 @@ underlying IPC system won't do anything more than just copy the length of data w
 back out when we receive.
 
 Our `message_data` has the following fields:
- * `resopnse_chan`: The `msqid` of the IPC message queue to send responses to. `paperd` will create its own message
+ * `response_chan`: The `msqid` of the IPC message queue to send responses to. `paperd` will create its own message
                     channel and pass the ID in this part of the message so the Paper server can send messages back to
                     `paperd`.
  * `response_pid`: The PID of the current running `paperd` process. This is used so Paper can check to make sure the
                    `paperd` process is still alive if it hasn't received a message in a while.
  * `message_type`: This defines the message type used for Layer 3. This determines the different kinds of messages Paper
                    and `paperd` will use.
- * `message_lenth`: The length of the `message` field that is actually used for this message. `message` is a
+ * `message_length`: The length of the `message` field that is actually used for this message. `message` is a
                     fixed-length array of 100 bytes, but not every byte may be used in a message.
  * `message`: A fixed-length array of 100 bytes used to store part of the Layer 2 command. `message_length` determines
               how many of the bytes in this field are actually used. The bytes after `message_length` are not part of
