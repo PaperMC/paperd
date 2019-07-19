@@ -146,7 +146,31 @@ the binary data as a command. The following message types are available:
 > Note: Several of the messages have a request that is nothing more than `{}`, as the message type is all that needs to
 > be known. the reason an empty object is still sent is simply for consistency.
 
-#### Stop `0`
+----
+
+#### Protocol Version `0`
+
+Request:
+```json
+{}
+```
+
+Response:
+```json
+{
+  "protocolVersion": 1
+}
+```
+
+Protocol version is a special case. The "protocol version" is a single integer which specifies the version of the
+following messages. This allows updating, adding, reordering, and removing messages below without breaking
+compatibility. As long as the protocol version number is bumped accordingly, `paperd` will verify the versions match
+before issuing commands to the server.
+
+That being said, the protocol version message `0` _must not change_ else compatibility will be broken. Even between
+protocol versions this message must stay the same.
+
+#### Stop `1`
 
 Request:
 ```json
@@ -154,18 +178,14 @@ Request:
 ```
 No response.
 
-#### Send Command `1`
+#### Restart `2`
 
 Request:
 ```json
-{
-  "message": "<some command>"
-}
+{}
 ```
 
-No response.
-
-#### Status `2`
+#### Status `3`
 
 Request:
 ```json
@@ -211,14 +231,18 @@ Single Response:
 }
 ```
 
-#### Restart `3`
+#### Send Command `4`
 
 Request:
 ```json
-{}
+{
+  "message": "<some command>"
+}
 ```
 
-#### Timings `4`
+No response.
+
+#### Timings `5`
 
 Request:
 ```json

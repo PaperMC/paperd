@@ -15,6 +15,7 @@
 
 use crate::messaging;
 use crate::messaging::MessageHandler;
+use crate::protocol::check_protocol;
 use crate::util::{get_pid, ExitError};
 use clap::ArgMatches;
 use nix::errno::Errno::ESRCH;
@@ -30,6 +31,8 @@ use std::{fs, io};
 
 pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
+    check_protocol(&pid_file)?;
+
     let pid = fs::read_to_string(&pid_file).conv()?;
     let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
 
@@ -94,7 +97,7 @@ struct StopMessage {}
 
 impl MessageHandler for StopMessage {
     fn type_id() -> i16 {
-        return 0;
+        return 1;
     }
 
     fn expect_response() -> bool {

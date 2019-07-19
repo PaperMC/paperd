@@ -15,12 +15,14 @@
 
 use crate::messaging;
 use crate::messaging::MessageHandler;
+use crate::protocol::check_protocol;
 use crate::util::{get_pid, mc_colors};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
 pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
+    check_protocol(&pid_file)?;
 
     let message = TimingsMessage {};
 
@@ -49,7 +51,7 @@ struct TimingsMessage {}
 
 impl MessageHandler for TimingsMessage {
     fn type_id() -> i16 {
-        return 4;
+        return 5;
     }
 
     fn expect_response() -> bool {

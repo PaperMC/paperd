@@ -15,12 +15,14 @@
 
 use crate::messaging;
 use crate::messaging::MessageHandler;
+use crate::protocol::check_protocol;
 use crate::util::get_pid;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
 pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
+    check_protocol(&pid_file)?;
 
     let message = StatusMessage {};
 
@@ -118,7 +120,7 @@ struct StatusMessage {}
 
 impl MessageHandler for StatusMessage {
     fn type_id() -> i16 {
-        return 2;
+        return 3;
     }
 
     fn expect_response() -> bool {

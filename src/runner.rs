@@ -36,7 +36,7 @@ use sys_info::mem_info;
 
 static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
 
-pub const PID_FILE_NAME: &str = "paper.pid";
+pub const PID_FILE_NAME: &'static str = "paper.pid";
 const RESTART_EXIT_CODE: i32 = 27;
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {

@@ -16,12 +16,14 @@
 use crate::log::{find_log_file, tail};
 use crate::messaging;
 use crate::messaging::MessageHandler;
+use crate::protocol::check_protocol;
 use crate::util::get_pid;
 use clap::ArgMatches;
 use serde::Serialize;
 
 pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
     let pid_file = get_pid(sub_m)?;
+    check_protocol(&pid_file)?;
 
     let command = match sub_m.value_of("COMMAND") {
         Some(s) => s,
@@ -54,7 +56,7 @@ struct SendCommandMessage {
 
 impl MessageHandler for SendCommandMessage {
     fn type_id() -> i16 {
-        return 1;
+        return 4;
     }
 
     fn expect_response() -> bool {

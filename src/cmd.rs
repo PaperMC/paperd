@@ -43,7 +43,7 @@ LICENSE:
         .setting(AppSettings::GlobalVersion)
         .version(crate_version!())
         .author("PaperMC (papermc.io)")
-        .about("PaperMC server daemon for running and controlling daemonized PaperMC servers.")
+        .about("PaperMC daemon for running and controlling daemonized PaperMC servers.")
         .subcommand(
             SubCommand::with_name("status")
                 .about("Get the status of the currently running server.")
