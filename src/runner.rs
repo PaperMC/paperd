@@ -28,6 +28,7 @@ use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
 use std::cmp::{max, min};
 use std::fs::canonicalize;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
@@ -44,19 +45,25 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 
     check_jar_protocol(&env.jar_file)?;
 
-    let mut lib_file = std::env::temp_dir();
-    lib_file.push("libpaperd_jni.so.gz");
-    // Find a file name that is available..
-    let mut count = 1;
-    while lib_file.exists() {
-        lib_file.pop();
-        lib_file.push(format!("libpaperd_jni.so.gz.{}", count));
-        count += 1;
+    if !check_eula(&env)? {
+        return run_server_foreground(&env);
     }
 
-    if let Err(e) = fs::write(&lib_file, JNI_LIB) {
-        eprintln!("Failed to write JNI library to temp directory: {}", e);
-        return Err(1);
+    let mut lib_file = std::env::temp_dir();
+    {
+        lib_file.push("libpaperd_jni.so.gz");
+        // Find a file name that is available..
+        let mut count = 1;
+        while lib_file.exists() {
+            lib_file.pop();
+            lib_file.push(format!("libpaperd_jni.so.gz.{}", count));
+            count += 1;
+        }
+
+        if let Err(e) = fs::write(&lib_file, JNI_LIB) {
+            eprintln!("Failed to write JNI library to temp directory: {}", e);
+            return Err(1);
+        }
     }
 
     match run_daemon() {
@@ -138,9 +145,33 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     return Err(result);
 }
 
+fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
+    let eula_path = env.working_dir.join("eula.txt");
+    if !eula_path.exists() {
+        println!("eula.txt file not found, running server in foreground instead.");
+        return Ok(false);
+    }
+
+    let eula_file = fs::File::open(&eula_path).conv()?;
+    let reader = BufReader::new(&eula_file);
+    for line in reader.lines() {
+        let line = line.conv()?;
+        if line.trim() == "eula=true" {
+            return Ok(true);
+        }
+    }
+
+    println!("EULA not agreed to, running server in foreground instead.");
+    return Ok(false);
+}
+
 pub fn run_cmd(sub_m: &ArgMatches) -> Result<(), i32> {
     let env = setup_java_env(sub_m)?;
-    let child = start_process(&env)?;
+    return run_server_foreground(&env);
+}
+
+fn run_server_foreground(env: &JavaEnv) -> Result<(), i32> {
+    let child = start_process(env)?;
 
     let pid = child.id();
 
