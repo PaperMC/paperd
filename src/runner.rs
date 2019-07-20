@@ -168,6 +168,14 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 }
 
 fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
+    // If this property is set then the eula is agreed by default
+    let eula_regex = Regex::new(r"-Dcom\.mojang\.eula\.agree=(?i)true").unwrap();
+    for arg in &env.args {
+        if eula_regex.is_match(arg.as_str()) {
+            return Ok(true);
+        }
+    }
+
     let eula_path = env.working_dir.join("eula.txt");
     if !eula_path.exists() {
         println!("eula.txt file not found, running server in foreground instead.");
