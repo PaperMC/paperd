@@ -38,6 +38,7 @@ use sys_info::mem_info;
 static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
 
 pub const PID_FILE_NAME: &'static str = "paper.pid";
+const STOP_EXIT_CODE: i32 = 13;
 const RESTART_EXIT_CODE: i32 = 27;
 
 pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
@@ -126,9 +127,26 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 
         let _ = fs::remove_file(pid_file);
 
+        // Check to see if we should restart from error
+        if sub_m.is_present("KEEP_ALIVE") {
+            if result == STOP_EXIT_CODE {
+                break;
+            } else {
+                // We need to restart, it looks like the server has crashed
+                continue;
+            }
+        }
+
         if result != RESTART_EXIT_CODE {
             break;
         }
+    }
+
+    if result == STOP_EXIT_CODE {
+        // This signifies a successful exit
+        // But being non-zero that would look like an error to most other things
+        // So paperd won't return that
+        result = 0;
     }
 
     // Attempt to cleanup a little
@@ -142,7 +160,11 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
         let _ = fs::remove_file(&lib_file);
     }
 
-    return Err(result);
+    if result == 0 {
+        return Ok(());
+    } else {
+        return Err(result);
+    }
 }
 
 fn check_eula(env: &JavaEnv) -> Result<bool, i32> {

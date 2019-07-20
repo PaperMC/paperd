@@ -102,6 +102,16 @@ LICENSE:
                      quit (will NOT stop the server).",
                 ))
                 .java_run()
+                .arg(
+                    Arg::with_name("KEEP_ALIVE")
+                        .help(
+                            "Restart the server when it crashes. If the server stops gracefully \
+                             from a shutdown command it will not restart, but if the server \
+                             shutdowns down due to a crash, paperd will restart it automatically.",
+                        )
+                        .short("k")
+                        .long("keep-alive"),
+                )
                 .display_order(2),
         )
         .subcommand(
