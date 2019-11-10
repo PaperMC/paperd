@@ -8,7 +8,6 @@ edition = "2018"
 opt-level = 'z'  # Optimize for size.
 lto = true
 codegen-units = 1
-panic = 'abort'
 
 [dependencies]
 nix = "0.14.1"

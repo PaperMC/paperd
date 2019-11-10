@@ -15,7 +15,11 @@
 
 #[macro_use]
 extern crate clap;
+extern crate crossbeam_channel;
+#[cfg(feature = "console")]
+extern crate ncurses;
 extern crate nix;
+extern crate rand;
 extern crate regex;
 extern crate serde;
 extern crate serde_json;
@@ -24,6 +28,8 @@ extern crate sys_info;
 extern crate zip;
 
 mod cmd;
+#[cfg(feature = "console")]
+mod console;
 mod daemon;
 mod log;
 mod messaging;
@@ -37,6 +43,8 @@ mod timings;
 mod util;
 
 use crate::cmd::handle_cmd_line;
+#[cfg(feature = "console")]
+use crate::console::console;
 use crate::log::log;
 use crate::restart::restart;
 use crate::runner::{run_cmd, start};
@@ -64,6 +72,8 @@ fn run() -> i32 {
         ("stop", Some(sub_m)) => stop(sub_m),
         ("restart", Some(sub_m)) => restart(sub_m),
         ("timings", Some(sub_m)) => timings(sub_m),
+        #[cfg(feature = "console")]
+        ("console", Some(sub_m)) => console(sub_m),
         ("completions", Some(sub_m)) => {
             let shell = sub_m.value_of("SHELL").unwrap();
             handle_cmd_line().gen_completions_to(

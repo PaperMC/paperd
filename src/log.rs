@@ -19,12 +19,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn log(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid = get_pid(sub_m)?;
+    let (pid, _) = get_pid(sub_m)?;
     let log_file = find_log_file(pid)?;
 
     let follow = sub_m.is_present("TAIL");
     let lines = match sub_m.value_of("LINES") {
-        Some(l) => l.parse::<i32>().conv()?,
+        Some(l) => l
+            .parse::<i32>()
+            .conv("Failed to parse command line argument")?,
         None => {
             eprintln!("No value provided for --lines argument");
             return Err(1);

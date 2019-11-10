@@ -13,15 +13,17 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#[cfg(feature = "console")]
+use crate::console::ansi;
 use crate::messaging;
 use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::{get_pid, mc_colors};
+use crate::util::get_pid;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
 pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
+    let (pid_file, _) = get_pid(sub_m)?;
     check_protocol(&pid_file)?;
 
     let message = TimingsMessage {};
@@ -37,12 +39,36 @@ pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
             break;
         }
         if res.message.is_some() {
+            #[cfg(feature = "console")]
+            println!(
+                "{}",
+                ansi::StyledMessage::parse(res.message.unwrap().as_str()).get_string()
+            );
+
+            #[cfg(not(feature = "console"))]
             println!("{}", mc_colors(res.message.unwrap().as_str()));
         }
     }
-    response_chan.close()?;
 
     return Ok(());
+}
+
+#[cfg(not(feature = "console"))]
+fn mc_colors(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut skip = false;
+    for ch in s.chars() {
+        if skip {
+            skip = false;
+            continue;
+        }
+        if ch == '§' {
+            skip = true;
+            continue;
+        }
+        out.push(ch);
+    }
+    return out;
 }
 
 // Request

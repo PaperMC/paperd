@@ -20,9 +20,10 @@ use crate::protocol::check_protocol;
 use crate::util::get_pid;
 use clap::ArgMatches;
 use serde::Serialize;
+use std::path::Path;
 
 pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
+    let (pid_file, _) = get_pid(sub_m)?;
     check_protocol(&pid_file)?;
 
     let command = match sub_m.value_of("COMMAND") {
@@ -33,12 +34,7 @@ pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
         }
     };
 
-    let message = SendCommandMessage {
-        message: command.to_string(),
-    };
-
-    let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<SendCommandMessage>(message)?;
+    send_command(&pid_file, command)?;
 
     if sub_m.is_present("TAIL") {
         let log_file = find_log_file(&pid_file)?;
@@ -46,6 +42,18 @@ pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
     }
 
     return Ok(());
+}
+
+pub fn send_command<P: AsRef<Path>>(pid_file: P, cmd: &str) -> Result<(), i32> {
+    let message = SendCommandMessage {
+        message: cmd.to_string(),
+    };
+
+    let chan = messaging::open_message_channel(pid_file.as_ref())?;
+    return match chan.send_message::<SendCommandMessage>(message) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    };
 }
 
 #[derive(Serialize)]

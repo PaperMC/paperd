@@ -17,6 +17,7 @@ use nix::errno::Errno;
 use nix::libc::{ftok, key_t};
 use paperd_lib::libc::{msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
 use paperd_lib::{Data, Message, MESSAGE_LENGTH, MESSAGE_TYPE};
+use rand::RngCore;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
@@ -164,15 +165,16 @@ impl MessageChannel {
         };
     }
 
-    pub fn close(&self) -> Result<(), i32> {
-        return close(self.msq_id);
+    pub fn close(&self) {
+        let _ = close(self.msq_id);
     }
 }
 
 fn create_receive_channel() -> Result<i32, i32> {
-    let pid = process::id();
+    let mut rng = rand::thread_rng();
+    let key = rng.next_u32();
 
-    let msqid = unsafe { msgget(pid as key_t, 0o666 | IPC_CREAT) };
+    let msqid = unsafe { msgget(key as key_t, 0o666 | IPC_CREAT) };
     if msqid == -1 {
         let msg = Errno::last().desc();
         eprintln!("Failed to open message channel: {}: {}", msqid, msg);
@@ -182,8 +184,9 @@ fn create_receive_channel() -> Result<i32, i32> {
     return Ok(msqid);
 }
 
+#[derive(Clone)]
 pub struct ResponseChannel {
-    response_chan: i32,
+    pub response_chan: i32,
 }
 
 impl ResponseChannel {
@@ -260,9 +263,11 @@ impl ResponseChannel {
             },
         };
     }
+}
 
-    pub fn close(&self) -> Result<(), i32> {
-        return close(self.response_chan);
+impl Drop for ResponseChannel {
+    fn drop(&mut self) {
+        let _ = close(self.response_chan);
     }
 }
 

@@ -13,43 +13,32 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::log::{find_log_file, tail};
-use crate::messaging;
 use crate::messaging::MessageHandler;
-use crate::protocol::check_protocol;
-use crate::util::get_pid;
-use clap::ArgMatches;
-use serde::Serialize;
-
-pub fn restart(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, _) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
-
-    let message = RestartMessage {};
-
-    println!("Sending restart request...");
-
-    let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<RestartMessage>(message)?;
-
-    if sub_m.is_present("TAIL") {
-        let log_file = find_log_file(&pid_file)?;
-        return tail(log_file, 0, true);
-    }
-
-    return Ok(());
-}
+use serde::{Deserialize, Serialize};
 
 // Request
 #[derive(Serialize)]
-struct RestartMessage {}
+pub struct ConsoleStatusMessage {}
 
-impl MessageHandler for RestartMessage {
+impl MessageHandler for ConsoleStatusMessage {
     fn type_id() -> i16 {
-        return 2;
+        return 8;
     }
 
     fn expect_response() -> bool {
-        return false;
+        return true;
     }
+}
+
+// Response
+#[derive(Deserialize)]
+pub struct ConsoleStatusMessageResponse {
+    #[serde(rename = "serverName")]
+    pub server_name: String,
+    #[serde(rename = "players")]
+    pub players: i32,
+    #[serde(rename = "maxPlayers")]
+    pub max_players: i32,
+    #[serde(rename = "tps")]
+    pub tps: f64,
 }

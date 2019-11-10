@@ -16,7 +16,7 @@
 use crate::messaging;
 use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::{get_pid, ExitError};
+use crate::util::get_pid;
 use clap::ArgMatches;
 use nix::errno::Errno::ESRCH;
 use nix::sys::signal::{kill, SIGKILL};
@@ -30,11 +30,8 @@ use std::time::Duration;
 use std::{fs, io};
 
 pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
+    let (pid_file, pid) = get_pid(sub_m)?;
     check_protocol(&pid_file)?;
-
-    let pid = fs::read_to_string(&pid_file).conv()?;
-    let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
 
     if sub_m.is_present("KILL") {
         force_kill(pid_file, pid);
@@ -86,8 +83,9 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
 fn force_kill<P: AsRef<Path>>(pid_file: P, pid: Pid) {
     let _ = kill(pid, SIGKILL);
     // The server won't have had a chance to close this themselves
-    if let Ok(chan) = messaging::open_message_channel(&pid_file) {
-        let _ = chan.close();
+    // The Drop impl on the message channel will close it
+    if let Ok(m) = messaging::open_message_channel(&pid_file) {
+        m.close();
     }
     let _ = fs::remove_file(&pid_file);
 }

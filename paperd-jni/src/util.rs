@@ -110,7 +110,9 @@ macro_rules! check_err {
         let ret = $val;
         if ret == -1 {
             let msg = Errno::last().desc();
-            throw(&$env, msg);
+            let mut err_str = alloc::string::String::from("Error during system call: ");
+            err_str.push_str(msg);
+            throw(&$env, err_str.as_str());
             return;
         }
         ret

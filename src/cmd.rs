@@ -16,7 +16,7 @@
 use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
 
 pub fn handle_cmd_line<'a, 'b>() -> App<'a, 'b> {
-    let pid_arg = Arg::with_name("PID")
+    let pid_arg = Arg::<'a, 'b>::with_name("PID")
         .help(
             "Custom PID file to send commands to a running server. If not set, the \
              PAPERMC_PID environment variable will be checked. If neither are set, the default \
@@ -71,6 +71,7 @@ LICENSE:
                 )
                 .display_order(1),
         )
+        .console(&pid_arg)
         .subcommand(
             SubCommand::with_name("log")
                 .about("Print recent log messages from the running MC server.")
@@ -184,11 +185,12 @@ LICENSE:
         .after_help(license_text);
 }
 
-trait JavaArg {
+trait PaperArg<'a, 'b> {
     fn java_run(self) -> Self;
+    fn console(self, arg: &Arg<'a, 'b>) -> Self;
 }
 
-impl<'a, 'b> JavaArg for App<'a, 'b> {
+impl<'a, 'b> PaperArg<'a, 'b> for App<'a, 'b> {
     fn java_run(self) -> Self {
         return self
             .arg(
@@ -261,6 +263,21 @@ impl<'a, 'b> JavaArg for App<'a, 'b> {
     OR
         $ paperd run -- -Xmx5G -Xms5G",
             );
+    }
+
+    #[cfg(feature = "console")]
+    fn console(self, arg: &Arg<'a, 'b>) -> Self {
+        return self.subcommand(
+            SubCommand::with_name("console")
+                .about("Attach to the console of the running MC server.")
+                .arg(arg)
+                .display_order(1),
+        );
+    }
+
+    #[cfg(not(feature = "console"))]
+    fn console(self, _: &Arg<'a, 'b>) -> Self {
+        return self;
     }
 }
 

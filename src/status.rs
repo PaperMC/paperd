@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::messaging;
 use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
 use crate::util::get_pid;
+use crate::{messaging, util};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
 pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
-    let pid_file = get_pid(sub_m)?;
+    let (pid_file, _) = get_pid(sub_m)?;
     check_protocol(&pid_file)?;
 
     let message = StatusMessage {};
@@ -32,7 +32,6 @@ pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
         .expect("Failed to create response channel");
 
     let res = response_chan.receive_message::<StatusMessageResponse>()?;
-    response_chan.close()?;
 
     output_status(&res);
 
@@ -68,9 +67,9 @@ fn output_status(status: &StatusMessageResponse) {
     println!();
     println!("-------------------- Server Performance --------------------");
     println!("  TPS");
-    println!("    Past 1 Minute   | {:.2}", status.tps.one_min);
-    println!("    Past 5 Minutes  | {:.2}", status.tps.five_min);
-    println!("    Past 15 Minutes | {:.2}", status.tps.fifteen_min);
+    println!("    Past 1 Minute   | {:.2}", util::tps_cap(status.tps.one_min));
+    println!("    Past 5 Minutes  | {:.2}", util::tps_cap(status.tps.five_min));
+    println!("    Past 15 Minutes | {:.2}", util::tps_cap(status.tps.fifteen_min));
     println!();
     println!("  Memory Usage");
     println!("    Memory Currently Used   | {}", status.memory_usage.used_memory);

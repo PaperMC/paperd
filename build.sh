@@ -43,7 +43,7 @@ function strip_paperd() {
 }
 
 function help() {
-    echo "Expected 'clean' or 'build'"
+    echo "Expected 'clean', 'build', or 'package'"
 }
 
 if [[ -z "$1" ]]; then
@@ -66,7 +66,6 @@ while [[ -n "$1" ]]; do
         if [[ "$2" == "--release" ]]; then
             rel="true"
             lib_file="target/release/libpaperd_jni.$exten"
-            shift
         else
             lib_file="target/debug/libpaperd_jni.$exten"
         fi
@@ -74,7 +73,7 @@ while [[ -n "$1" ]]; do
         (
             echo "Building paperd-jni"
             cd paperd-jni
-            if [[ -n "$rel" ]]; then
+            if [[ -n "$rel" ]] ; then
                 cargo build --color always --release
             else
                 cargo build --color always
@@ -92,11 +91,7 @@ while [[ -n "$1" ]]; do
         echo "Building paperd"
         (
             export PAPERD_JNI_LIB="../paperd-jni/$lib_file.gz"
-            if [[ -n "$rel" ]]; then
-                cargo build --color always --release
-            else
-                cargo build --color always
-            fi
+            cargo build --color always "${@:2}"
         )
 
         if [[ -n "$rel" ]]; then
@@ -115,6 +110,10 @@ while [[ -n "$1" ]]; do
             pream="target/debug/"
         fi
         XZ_OPT=-9 tar -Jcf paperd.tar.xz --transform="s|$pream||g" "${pream}paperd"
+        exit
+        ;;
+    "package")
+        docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/usr/src/paperd -w /usr/src/paperd rust:1.36.0 ./build.sh build --release --features console
         ;;
     *)
         help

@@ -23,7 +23,19 @@ currently version `1.36.0`.
 
 To build for release, use the build.sh script:
 ```sh
+./build.sh clean build --release --features console
+```
+
+If you don't want the console feature, or don't have `ncurses` installed, simply omit the feature to build without it:
+```sh
 ./build.sh clean build --release
+```
+
+If you have Docker you can build using a stable Docker image. This is especially useful if you are running a more
+bleeding edge distro (i.e. Arch) which is using ncurses 6, though we want to match Ubuntu's ncurses 5 as it's the most
+prevalent MC server OS.
+```sh
+./build.sh clean package
 ```
 
 The `paperd.tar.xz` file that will result in the current working directory is the pre-built file available from Jenkins.

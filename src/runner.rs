@@ -23,7 +23,6 @@ use nix::sys::signal;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 use nix::Error;
-use regex::Regex;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
 use std::cmp::{max, min};
@@ -169,9 +168,9 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 
 fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
     // If this property is set then the eula is agreed by default
-    let eula_regex = Regex::new(r"-Dcom\.mojang\.eula\.agree=(?i)true").unwrap();
     for arg in &env.args {
-        if eula_regex.is_match(arg.as_str()) {
+        let arg = arg.to_ascii_lowercase();
+        if arg.starts_with("-dcom.mojang.eula.agree=") && arg.ends_with("true") {
             return Ok(true);
         }
     }
@@ -182,10 +181,10 @@ fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
         return Ok(false);
     }
 
-    let eula_file = fs::File::open(&eula_path).conv()?;
+    let eula_file = fs::File::open(&eula_path).conv("Failed to open EULA file")?;
     let reader = BufReader::new(&eula_file);
     for line in reader.lines() {
-        let line = line.conv()?;
+        let line = line.conv("Failed to read EULA file")?;
         if line.trim() == "eula=true" {
             return Ok(true);
         }
@@ -289,8 +288,8 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
 
     let pid_file = parent_path.join(PID_FILE_NAME);
     if pid_file.is_file() {
-        let pid = fs::read_to_string(&pid_file).conv()?;
-        let pid = Pid::from_raw(pid.parse::<i32>().conv()?);
+        let pid = fs::read_to_string(&pid_file).conv("Failed to read PID file")?;
+        let pid = Pid::from_raw(pid.parse::<i32>().conv("Failed to parse PID file")?);
 
         match kill(pid, None) {
             Ok(()) => {
@@ -303,7 +302,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
             Err(Error::Sys(e)) => {
                 if e == ESRCH {
                     println!("Found stale PID file, removing");
-                    fs::remove_file(&pid_file).conv()?;
+                    fs::remove_file(&pid_file).conv("Failed to delete PID file")?;
                 } else {
                     println!("Unknown error occurred (start): {}", e);
                     return Err(1);
@@ -371,9 +370,19 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
     let mut heap: String = "500m".to_string();
 
     if let Some(value) = sub_m.value_of("DEFAULT_ARGS") {
-        let reg = Regex::new(r"\d+[mG]").unwrap();
-        if !reg.is_match(value) {
-            eprintln!("Invalid format for JVM heap size. Should be something like 500m or 2G.");
+        const ERROR_MSG: &str =
+            "Invalid format for JVM heap size. Should be something like 500m or 2G.";
+        if value.is_empty() {
+            eprintln!("{}", ERROR_MSG);
+            return Err(1);
+        }
+
+        if value[..value.len() - 1]
+            .chars()
+            .any(|c| !c.is_ascii_digit())
+            && value.chars().last().map_or(true, |c| c != 'm' && c != 'G')
+        {
+            eprintln!("{}", ERROR_MSG);
             return Err(1);
         }
 

@@ -27,7 +27,7 @@ static PROTOCOL_VERSION: i32 = 1;
 pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
     let jar_path = path.as_ref();
 
-    let jar_file = fs::File::open(jar_path).conv()?;
+    let jar_file = fs::File::open(jar_path).conv("Failed to open jar file")?;
     let mut jar_archive = match ZipArchive::new(jar_file) {
         Ok(archive) => archive,
         Err(e) => {
@@ -97,7 +97,6 @@ pub fn check_protocol<P: AsRef<Path>>(pid: P) -> Result<(), i32> {
         .expect("Failed to create response channel");
 
     let res = response_chan.receive_message::<ProtocolVersionMessageResponse>()?;
-    response_chan.close()?;
 
     if res.protocol_version != PROTOCOL_VERSION {
         eprintln!(
