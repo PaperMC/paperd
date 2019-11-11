@@ -161,94 +161,17 @@ impl<'a> Term<'a> {
         return self.do_term_loop();
     }
 
-    fn do_term_loop(mut self) -> Result<(), i32> {
+    fn do_term_loop(self) -> Result<(), i32> {
         let stop = Arc::new(AtomicBool::new(false));
-        // The server response results of the completion requests
-        let (comp_res_send, comp_res_rec) = crossbeam_channel::unbounded::<Vec<String>>();
 
         // line buffer, holds the log messages we receive from the server
         let buffer = Arc::new(Mutex::new(Vec::<StyledMessage>::new()));
 
-        // Listen for the server stopping
-        {
-            let stop_bg = stop.clone();
-            let pid_text = fs::read_to_string(&self.pid_file).conv("Failed to read PID file")?;
-            let pid_int = pid_text.parse::<i32>().conv("Failed to parse PID file")?;
-            let pid = Pid::from_raw(pid_int);
-            thread::spawn(move || {
-                while !stop_bg.load(Ordering::SeqCst) {
-                    if let Err(_) = kill(pid, None) {
-                        stop_bg.store(true, Ordering::SeqCst);
-                        break;
-                    } else {
-                        sleep(Duration::from_millis(500));
-                    }
-                }
-            });
-        }
+        // Set up listeners
+        self.start_stop_listener_thread(stop.clone())?;
+        self.start_signals_listener_thread(stop.clone());
 
-        // Setup signal handling
-        {
-            let stop_bg = stop.clone();
-            let signals_bg = self.signals.clone();
-            thread::spawn(move || {
-                for _ in signals_bg.forever() {
-                    stop_bg.store(true, Ordering::SeqCst);
-                    break;
-                }
-            });
-        }
-
-        // Receive new messages
-        {
-            let stop_bg = stop.clone();
-            let buffer_bg = buffer.clone();
-            let chan_bg = self.resp_chan.clone();
-            thread::spawn(move || {
-                while !stop_bg.load(Ordering::SeqCst) {
-                    let res = match chan_bg.receive_message::<LogsMessageResponse>() {
-                        Ok(res) => res,
-                        Err(_) => {
-                            stop_bg.store(true, Ordering::SeqCst);
-                            break;
-                        }
-                    };
-
-                    let mut code_hist = Vec::<AnsiCode>::new();
-
-                    // Multi-line messages can have styles at the start and RESET at the end, which would
-                    // be expected to be applied to the whole block
-                    // But we split these messages up into their own individual lines to make displaying
-                    // them easier, so need to essentially "re-apply" these styles on every line
-                    //
-                    // The key is to make sure we still respect RESET tokens when they appear
-                    for part in res.message.split_terminator('\n') {
-                        let mut next_code_hist = Vec::<AnsiCode>::new();
-
-                        let mut msg = StyledMessage::parse(part.replace("\t", "    ").as_str());
-                        // Figure out which parts leak into other lines
-                        for element in &msg.messages {
-                            if let MessageElement::Code(c) = element {
-                                if *c == AnsiCode::Reset {
-                                    next_code_hist.clear();
-                                    code_hist.clear();
-                                } else {
-                                    next_code_hist.push(*c);
-                                }
-                            }
-                        }
-
-                        for code in &code_hist {
-                            msg.messages.insert(0, MessageElement::Code(*code));
-                        }
-                        msg.messages.push(MessageElement::Code(AnsiCode::Reset));
-                        buffer_bg.lock().unwrap().push(msg);
-
-                        code_hist.append(&mut next_code_hist);
-                    }
-                }
-            });
-        }
+        self.start_new_message_listener_thread(stop.clone(), buffer.clone());
 
         let status = Arc::new(Mutex::new(CurrentStatus {
             mode: ArrowMode::INPUT,
@@ -258,63 +181,154 @@ impl<'a> Term<'a> {
             server_name: "".to_string(),
         }));
 
-        {
-            let status_bg = status.clone();
-            let pid_file_bg = self.pid_file.clone();
-            let stop_bg = stop.clone();
-            thread::spawn(move || {
-                macro_rules! handle_error {
-                    ($stop:ident) => {
-                        if $stop.load(Ordering::SeqCst) {
-                            break;
-                        }
-                        thread::sleep(Duration::from_secs(1));
-                        continue;
-                    };
+        self.start_status_bar_thread(stop.clone(), status.clone());
+
+        return self.input_loop(stop.clone(), buffer.clone(), status.clone());
+    }
+
+    fn start_stop_listener_thread(&self, stop: Arc<AtomicBool>) -> Result<(), i32> {
+        let pid_text = fs::read_to_string(&self.pid_file).conv("Failed to read PID file")?;
+        let pid_int = pid_text.parse::<i32>().conv("Failed to parse PID file")?;
+        let pid = Pid::from_raw(pid_int);
+        thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                if let Err(_) = kill(pid, None) {
+                    stop.store(true, Ordering::SeqCst);
+                    break;
+                } else {
+                    sleep(Duration::from_secs(2));
                 }
+            }
+        });
 
-                while !stop_bg.load(Ordering::SeqCst) {
-                    let chan = match open_message_channel(&pid_file_bg) {
-                        Ok(c) => c,
-                        Err(_) => {
-                            handle_error!(stop_bg);
-                        }
-                    };
+        return Ok(());
+    }
 
-                    let resp: ConsoleStatusMessageResponse;
-                    {
-                        let response_chan = match chan.send_message(ConsoleStatusMessage {}) {
-                            Ok(s) => s.expect("Failed to create response channel"),
-                            Err(_) => {
-                                handle_error!(stop_bg);
-                            }
-                        };
+    fn start_signals_listener_thread(&self, stop: Arc<AtomicBool>) {
+        let signals_bg = self.signals.clone();
+        thread::spawn(move || {
+            for _ in signals_bg.forever() {
+                stop.store(true, Ordering::SeqCst);
+                break;
+            }
+        });
+    }
 
-                        resp = match response_chan.receive_message::<ConsoleStatusMessageResponse>()
-                        {
-                            Ok(r) => r,
-                            Err(_) => {
-                                handle_error!(stop_bg);
-                            }
-                        };
-                    }
+    fn start_new_message_listener_thread(
+        &self,
+        stop: Arc<AtomicBool>,
+        buffer: Arc<Mutex<Vec<StyledMessage>>>,
+    ) {
+        let chan_bg = self.resp_chan.clone();
 
-                    {
-                        let mut status = status_bg.lock().unwrap();
-                        status.server_name = resp.server_name;
-                        status.players = resp.players;
-                        status.max_players = resp.max_players;
-                        status.tps = resp.tps;
-                    }
-
-                    if stop_bg.load(Ordering::SeqCst) {
+        thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                let res = match chan_bg.receive_message::<LogsMessageResponse>() {
+                    Ok(res) => res,
+                    Err(_) => {
+                        stop.store(true, Ordering::SeqCst);
                         break;
                     }
+                };
 
-                    thread::sleep(Duration::from_secs(1));
+                let mut code_hist = Vec::<AnsiCode>::new();
+
+                // Multi-line messages can have styles at the start and RESET at the end, which would
+                // be expected to be applied to the whole block
+                // But we split these messages up into their own individual lines to make displaying
+                // them easier, so need to essentially "re-apply" these styles on every line
+                //
+                // The key is to make sure we still respect RESET tokens when they appear
+                for part in res.message.split_terminator('\n') {
+                    let mut next_code_hist = Vec::<AnsiCode>::new();
+
+                    let mut msg = StyledMessage::parse(part.replace("\t", "    ").as_str());
+                    // Figure out which parts leak into other lines
+                    for element in &msg.messages {
+                        if let MessageElement::Code(c) = element {
+                            if *c == AnsiCode::Reset {
+                                next_code_hist.clear();
+                                code_hist.clear();
+                            } else {
+                                next_code_hist.push(*c);
+                            }
+                        }
+                    }
+
+                    for code in &code_hist {
+                        msg.messages.insert(0, MessageElement::Code(*code));
+                    }
+                    msg.messages.push(MessageElement::Code(AnsiCode::Reset));
+                    buffer.lock().unwrap().push(msg);
+
+                    code_hist.append(&mut next_code_hist);
                 }
-            });
-        }
+            }
+        });
+    }
+
+    fn start_status_bar_thread(&self, stop: Arc<AtomicBool>, status: Arc<Mutex<CurrentStatus>>) {
+        let pid_file_bg = self.pid_file.clone();
+        thread::spawn(move || {
+            macro_rules! handle_error {
+                ($stop:ident) => {
+                    if $stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                };
+            }
+
+            while !stop.load(Ordering::SeqCst) {
+                let chan = match open_message_channel(&pid_file_bg) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        handle_error!(stop);
+                    }
+                };
+
+                let resp: ConsoleStatusMessageResponse = {
+                    let response_chan = match chan.send_message(ConsoleStatusMessage {}) {
+                        Ok(s) => s.expect("Failed to create response channel"),
+                        Err(_) => {
+                            handle_error!(stop);
+                        }
+                    };
+
+                    match response_chan.receive_message::<ConsoleStatusMessageResponse>() {
+                        Ok(r) => r,
+                        Err(_) => {
+                            handle_error!(stop);
+                        }
+                    }
+                };
+
+                {
+                    let mut status = status.lock().unwrap();
+                    status.server_name = resp.server_name;
+                    status.players = resp.players;
+                    status.max_players = resp.max_players;
+                    status.tps = resp.tps;
+                }
+
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                thread::sleep(Duration::from_secs(1));
+            }
+        });
+    }
+
+    fn input_loop(
+        mut self,
+        stop: Arc<AtomicBool>,
+        buffer: Arc<Mutex<Vec<StyledMessage>>>,
+        status: Arc<Mutex<CurrentStatus>>,
+    ) -> Result<(), i32> {
+        // The server response results of the completion requests
+        let (comp_res_send, comp_res_rec) = crossbeam_channel::unbounded::<Vec<String>>();
 
         // index represents the last line visible on screen
         // it's subtracted from the buffer's length to find the line

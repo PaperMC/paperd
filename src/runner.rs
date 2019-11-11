@@ -23,10 +23,11 @@ use nix::sys::signal;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 use nix::Error;
+use serde::Deserialize;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
 use std::cmp::{max, min};
-use std::fs::canonicalize;
+use std::fs::{canonicalize, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -218,6 +219,7 @@ struct JavaEnv {
     jar_file: PathBuf,
     working_dir: PathBuf,
     args: Vec<String>,
+    server_args: Vec<String>,
 }
 
 fn start_process(env: &JavaEnv) -> Result<Child, i32> {
@@ -225,6 +227,7 @@ fn start_process(env: &JavaEnv) -> Result<Child, i32> {
         .args(&env.args)
         .arg("-jar")
         .arg(&env.jar_file)
+        .args(&env.server_args)
         .current_dir(&env.working_dir)
         .spawn();
 
@@ -238,8 +241,41 @@ fn start_process(env: &JavaEnv) -> Result<Child, i32> {
 }
 
 fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
+    let config: Option<RunnerConfig> = match sub_m.value_of("CONFIG_FILE") {
+        Some(config_path_text) => {
+            let config_path = PathBuf::from(config_path_text);
+            if !config_path.exists() {
+                eprintln!("No file found at {}", config_path_text);
+                return Err(1);
+            }
+
+            let config_file = match File::open(config_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("Failed to open config file {}: {}", config_path_text, e);
+                    return Err(1);
+                }
+            };
+
+            match serde_json::from_reader(config_file) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to parse config file {}: {}", config_path_text, e);
+                    return Err(1);
+                }
+            }
+        }
+        None => None,
+    };
+    let config = config.as_ref();
+
     // Find Java executable
-    let java_path = sub_m.value_of("JVM").map(PathBuf::from).or_else(find_java);
+    let java_path = config
+        .and_then(|c| c.jvm.as_ref().map(|s| s.as_str()))
+        .or(sub_m.value_of("JVM"))
+        .map(PathBuf::from)
+        .or_else(find_java);
+
     let java_path = match java_path {
         Some(path) => path,
         None => {
@@ -252,7 +288,10 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     };
 
     // Find target jar file
-    let jar_path = match sub_m.value_of("JAR") {
+    let jar_path = match config
+        .and_then(|c| c.jar_file.as_ref().map(|s| s.as_str()))
+        .or(sub_m.value_of("JAR"))
+    {
         Some(path) => match canonicalize(PathBuf::from(path)) {
             Ok(canonical) => canonical,
             _ => {
@@ -271,10 +310,12 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     }
 
     // Get the jar's parent directory
-    let parent_path = sub_m
-        .value_of("CWD")
+    let parent_path = config
+        .and_then(|c| c.working_dir.as_ref().map(|s| s.as_str()))
+        .or(sub_m.value_of("CWD"))
         .map(|s| PathBuf::from(s))
         .or_else(|| jar_path.parent().map(|p| p.to_path_buf()));
+
     let parent_path = match parent_path {
         Some(path) => path,
         None => {
@@ -312,13 +353,16 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
         }
     }
 
-    let jvm_args = get_jvm_args(sub_m)?;
+    let jvm_args = get_jvm_args(&config, sub_m)?;
 
     return Ok(JavaEnv {
         java_file: java_path,
         jar_file: jar_path,
         working_dir: parent_path,
         args: jvm_args,
+        server_args: config
+            .and_then(|c| c.server_args.as_ref().map(|a| a.clone()))
+            .unwrap_or_else(|| Vec::new()),
     });
 }
 
@@ -360,7 +404,10 @@ fn find_java() -> Option<PathBuf> {
     return find_prog(&[("PATH", "java"), ("JAVA_HOME", "bin/java")]);
 }
 
-fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
+fn get_jvm_args(config: &Option<&RunnerConfig>, sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
+    if let Some(args) = config.and_then(|c| c.jvm_args.as_ref().map(|a| a.clone())) {
+        return Ok(args);
+    }
     if let Some(vals) = sub_m.values_of("CUSTOM_ARGS") {
         return Ok(vals.map(|s| s.to_string()).collect());
     }
@@ -430,4 +477,18 @@ fn get_jvm_args(sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
         "-XX:+ParallelRefProcEnabled".to_string(),
         "-Dusing.aikars.flags=mcflags.emc.gs".to_string(),
     ]);
+}
+
+#[derive(Deserialize)]
+struct RunnerConfig {
+    #[serde(rename = "jvm")]
+    jvm: Option<String>,
+    #[serde(rename = "jarFile")]
+    jar_file: Option<String>,
+    #[serde(rename = "workingDir")]
+    working_dir: Option<String>,
+    #[serde(rename = "jvmArgs")]
+    jvm_args: Option<Vec<String>>,
+    #[serde(rename = "serverArgs")]
+    server_args: Option<Vec<String>>,
 }

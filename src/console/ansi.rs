@@ -133,30 +133,6 @@ impl AnsiCode {
 
     fn attr_pair(&self) -> (Option<(i16, i16, i16)>, Option<attr_t>) {
         return match *self {
-            //            AnsiCode::Black => (Some((BLACK_PAIR, COLOR_BLACK, COLOR_WHITE)), Some(A_DIM())),
-            //            AnsiCode::DarkBlue => (Some((DARK_BLUE_PAIR, COLOR_BLUE, -1)), Some(A_DIM())),
-            //            AnsiCode::DarkGreen => (Some((DARK_GREEN_PAIR, COLOR_GREEN, -1)), Some(A_DIM())),
-            //            AnsiCode::DarkAqua => (Some((DARK_AQUA_PAIR, COLOR_CYAN, -1)), Some(A_DIM())),
-            //            AnsiCode::DarkRed => (Some((DARK_RED_PAIR, COLOR_RED, -1)), Some(A_DIM())),
-            //            AnsiCode::DarkPurple => (Some((DARK_PURPLE_PAIR, COLOR_MAGENTA, -1)), Some(A_DIM())),
-            //            AnsiCode::Gold => (Some((GOLD_PAIR, COLOR_YELLOW, -1)), Some(A_DIM())),
-            //            AnsiCode::Gray => (Some((GRAY_PAIR, COLOR_WHITE, COLOR_BLACK)), Some(A_DIM())),
-            //            AnsiCode::DarkGray => (Some((DARK_GRAY_PAIR, COLOR_BLACK, COLOR_WHITE)), None),
-            //            AnsiCode::Blue => (Some((BLUE_PAIR, COLOR_BLUE, -1)), None),
-            //            AnsiCode::Green => (Some((GREEN_PAIR, COLOR_GREEN, -1)), None),
-            //            AnsiCode::Aqua => (Some((AQUA_PAIR, COLOR_CYAN, -1)), None),
-            //            AnsiCode::Red => (Some((RED_PAIR, COLOR_RED, -1)), None),
-            //            AnsiCode::LightPurple => (Some((LIGHT_PURPLE_PAIR, COLOR_MAGENTA, -1)), None),
-            //            AnsiCode::Yellow => (Some((YELLOW_PAIR, COLOR_YELLOW, -1)), None),
-            //            AnsiCode::White => (Some((WHITE_PAIR, COLOR_WHITE, COLOR_BLACK)), None),
-            //            AnsiCode::Obfuscated => (None, Some(A_BLINK())),
-            //            AnsiCode::Bold => (None, Some(A_BOLD())),
-            //            AnsiCode::Strikethrough => (None, None), // ncurses doesn't support strikethrough, so this does nothing
-            //            AnsiCode::Underline => (None, Some(A_UNDERLINE())),
-            //            AnsiCode::Italic => (None, Some(A_ITALIC())),
-            //            AnsiCode::Reset => (None, None), // this is a special case, will cause all other effects to undo
-            //            AnsiCode::Warn => (Some((YELLOW_PAIR, COLOR_YELLOW, -1)), Some(A_BOLD())),
-            //            AnsiCode::Error => (Some((RED_PAIR, COLOR_RED, -1)), Some(A_BOLD())),
             AnsiCode::Black => (Some((BLACK_PAIR, COLOR_BLACK, COLOR_WHITE)), None),
             AnsiCode::DarkBlue => (Some((DARK_BLUE_PAIR, COLOR_BLUE, -1)), None),
             AnsiCode::DarkGreen => (Some((DARK_GREEN_PAIR, COLOR_GREEN, -1)), None),

@@ -13,9 +13,26 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use clap::{App, AppSettings, Arg, ArgGroup, SubCommand};
+use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, Shell, SubCommand};
+use std::io;
 
-pub fn handle_cmd_line<'a, 'b>() -> App<'a, 'b> {
+pub fn get_cmd_line_matches<'a>() -> ArgMatches<'a> {
+    let start_text = run_after_text("start");
+    let run_text = run_after_text("run");
+    return handle_cmd_line(start_text.as_str(), run_text.as_str()).get_matches();
+}
+
+pub fn gen_completions(shell: &str) {
+    let start_text = run_after_text("start");
+    let run_text = run_after_text("run");
+    handle_cmd_line(start_text.as_str(), run_text.as_str()).gen_completions_to(
+        "paperd",
+        shell.parse::<Shell>().unwrap(),
+        &mut io::stdout(),
+    );
+}
+
+fn handle_cmd_line<'a, 'b>(start_after: &'b str, run_after: &'b str) -> App<'a, 'b> {
     let pid_arg = Arg::<'a, 'b>::with_name("PID")
         .help(
             "Custom PID file to send commands to a running server. If not set, the \
@@ -102,7 +119,7 @@ LICENSE:
                     "Tail the server log after starting the server. Press C-c to \
                      quit (will NOT stop the server).",
                 ))
-                .java_run()
+                .java_run(start_after)
                 .arg(
                     Arg::with_name("KEEP_ALIVE")
                         .help(
@@ -118,7 +135,7 @@ LICENSE:
         .subcommand(
             SubCommand::with_name("run")
                 .about("Start the MC server in the foreground.")
-                .java_run()
+                .java_run(run_after)
                 .display_order(2),
         )
         .subcommand(
@@ -186,12 +203,12 @@ LICENSE:
 }
 
 trait PaperArg<'a, 'b> {
-    fn java_run(self) -> Self;
+    fn java_run(self, after_text: &'b str) -> Self;
     fn console(self, arg: &Arg<'a, 'b>) -> Self;
 }
 
 impl<'a, 'b> PaperArg<'a, 'b> for App<'a, 'b> {
-    fn java_run(self) -> Self {
+    fn java_run(self, after_text: &'b str) -> Self {
         return self
             .arg(
                 Arg::with_name("JVM")
@@ -246,23 +263,25 @@ impl<'a, 'b> PaperArg<'a, 'b> for App<'a, 'b> {
                     .allow_hyphen_values(true)
                     .multiple(true),
             )
+            .arg(
+                Arg::with_name("CONFIG_FILE")
+                    .help(
+                        "Define a JSON configuration file which specifies all other arguments. \
+                         This allows defining complex or large startup commands permanently for \
+                         using them again for each server startup. The JSON configuration file can \
+                         define more configuration past what is possible with just command line \
+                         arguments. See documentation for the JSON configuration file below in the \
+                         CONFIG FILE section.",
+                    )
+                    .long("config-file")
+                    .takes_value(true),
+            )
             .group(
                 ArgGroup::with_name("JVM_ARGS")
                     .arg("DEFAULT_ARGS")
                     .arg("CUSTOM_ARGS"),
             )
-            .after_help(
-                r"EXAMPLES:
-    The --default-args argument or the 'CUSTOM_ARGS' arguments are mutually exclusive. That is, you
-    can either use --default-args OR specify custom arguments, but not both.
-    
-    Examples:
-        $ paperd run -d 10G
-    OR
-        $ paperd run --default-args 2G
-    OR
-        $ paperd run -- -Xmx5G -Xms5G",
-            );
+            .after_help(after_text);
     }
 
     #[cfg(feature = "console")]
@@ -283,6 +302,45 @@ impl<'a, 'b> PaperArg<'a, 'b> for App<'a, 'b> {
 
 fn tail_arg(message: &str) -> Arg {
     return Arg::with_name("TAIL").help(message).short("t").long("tail");
+}
+
+fn run_after_text(command_text: &str) -> String {
+    return format!(
+        r#"EXAMPLES:
+    The --default-args argument or the 'CUSTOM_ARGS' arguments are mutually exclusive. That is, you
+    can either use --default-args OR specify custom arguments, but not both.
+
+    Examples:
+        $ paperd {cmd} -d 10G
+    OR
+        $ paperd {cmd} --default-args 2G
+    OR
+        $ paperd {cmd} -- -Xmx5G -Xms5G
+
+CONFIG FILE:
+    You may pass options to this command using a JSON configuration file instead of command line
+    arguments using the --config-file argument. When using this argument the config file values
+    have lower precedence than the other command line arguments, so any other arguments specified
+    will effectively override any configuration values present in the file. The config file must be
+    a valid JSON file with the following keys. All keys are optional.
+
+    * jvm        | This is equivalent to the --jvm argument.
+    * jarFile    | This is equivalent to the --jar argument.
+    * workingDir | This is equivalent to the -w or --working-dir argument.
+    * jvmArgs    | This is equivalent to the CUSTOM_ARGS argument.
+    * serverArgs | This has no equivalent argument. This has the same format as the jvmArgs or
+                   CUSTOM_ARGS configuration, but specifies server arguments instead of JVM
+                   arguments such as --world-dir or --port.
+
+    Example JSON file:
+    {{
+        "jarFile": "../some/global/paperclip.jar",
+        "workingDir": "/minecraft/servers/paper",
+        "jvmArgs": ["-Xmx5G", "-Xms5G"],
+        "serverArgs": ["--port", "22222"]
+    }}"#,
+        cmd = command_text
+    );
 }
 
 // This excellent description was taken from rustup
