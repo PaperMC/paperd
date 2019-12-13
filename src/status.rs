@@ -115,7 +115,7 @@ fn format_time(time: &str) -> String {
 
 // Request
 #[derive(Serialize)]
-struct StatusMessage {}
+pub(crate) struct StatusMessage {}
 
 impl MessageHandler for StatusMessage {
     fn type_id() -> i16 {
@@ -129,7 +129,7 @@ impl MessageHandler for StatusMessage {
 
 // Response
 #[derive(Deserialize)]
-struct StatusMessageResponse {
+pub(crate) struct StatusMessageResponse {
     #[serde(rename = "motd")]
     motd: String,
     #[serde(rename = "serverName")]
@@ -149,7 +149,7 @@ struct StatusMessageResponse {
 }
 
 #[derive(Deserialize)]
-struct WorldStatus {
+pub(crate) struct WorldStatus {
     #[serde(rename = "name")]
     name: String,
     #[serde(rename = "dimension")]
@@ -165,7 +165,7 @@ struct WorldStatus {
 }
 
 #[derive(Deserialize)]
-struct TpsStatus {
+pub(crate) struct TpsStatus {
     #[serde(rename = "oneMin")]
     one_min: f64,
     #[serde(rename = "fiveMin")]
@@ -175,7 +175,7 @@ struct TpsStatus {
 }
 
 #[derive(Deserialize)]
-struct MemoryStatus {
+pub(crate) struct MemoryStatus {
     #[serde(rename = "usedMemory")]
     used_memory: String,
     #[serde(rename = "totalMemory")]

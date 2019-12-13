@@ -18,7 +18,8 @@
 use nix::libc::c_long;
 
 pub mod libc {
-    use nix::libc::{c_int, c_long, c_void, key_t, size_t, ssize_t};
+    use core::ffi::c_void;
+    use nix::libc::{c_int, c_long, key_t, size_t, ssize_t};
 
     pub const IPC_CREAT: c_int = 0o1000;
     pub const IPC_RMID: c_int = 0;

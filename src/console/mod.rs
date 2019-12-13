@@ -21,6 +21,7 @@ use crate::console::console_status::{ConsoleStatusMessage, ConsoleStatusMessageR
 use crate::messaging::{open_message_channel, MessageHandler, ResponseChannel};
 use crate::protocol::check_protocol;
 use crate::send::send_command;
+use crate::status::{StatusMessage, StatusMessageResponse};
 use crate::util::{get_pid, is_pid_running, ExitError};
 use crate::{messaging, util};
 use clap::ArgMatches;
@@ -98,8 +99,20 @@ pub fn console(sub_m: &ArgMatches) -> Result<(), i32> {
     check_protocol(&pid_file)?;
 
     // Open logs channel
-    let message = LogsMessage {};
     let chan = messaging::open_message_channel(&pid_file)?;
+    {
+        let message = StatusMessage {};
+        let response_chan = chan
+            .send_message::<StatusMessage>(message)?
+            .expect("Failed to create response channel");
+        if let Err(_) = response_chan.receive_message::<StatusMessageResponse>() {
+            // Server is not yet ready (which will already be told to the user by the above
+            // function) so just quit before creating the console
+            return Err(1);
+        }
+    }
+
+    let message = LogsMessage {};
     let response_chan = chan
         .send_message::<LogsMessage>(message)?
         .expect("Failed to create response channel");
