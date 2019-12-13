@@ -3,6 +3,9 @@ rust:
   - stable
   - beta
   - nightly
+env:
+  - CMD="build"
+  - CMD="build --features console"
 matrix:
   allow_failures:
     - rust: beta
@@ -10,7 +13,7 @@ matrix:
   fast_finish: true
 cache: cargo
 script:
-  - ./build.sh build
+  - ./build.sh $CMD
 addons:
   apt:
     packages:
