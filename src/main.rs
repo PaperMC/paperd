@@ -23,6 +23,7 @@ extern crate rand;
 extern crate regex;
 extern crate serde;
 extern crate serde_json;
+extern crate shellexpand;
 extern crate signal_hook;
 extern crate sys_info;
 extern crate zip;

@@ -26,13 +26,14 @@ use nix::Error;
 use serde::Deserialize;
 use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
+use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::fs::{canonicalize, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
-use std::{fs, thread};
+use std::{env, fs, thread};
 use sys_info::mem_info;
 
 static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
@@ -240,8 +241,16 @@ fn start_process(env: &JavaEnv) -> Result<Child, i32> {
     };
 }
 
+fn shell_context(s: &str) -> Result<Option<Cow<'static, str>>, env::VarError> {
+    match env::var(s) {
+        Ok(value) => Ok(Some(value.into())),
+        Err(env::VarError::NotPresent) => Ok(Some("".into())),
+        Err(e) => Err(e),
+    }
+}
+
 fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
-    let config: Option<RunnerConfig> = match sub_m.value_of("CONFIG_FILE") {
+    let mut config: Option<RunnerConfig> = match sub_m.value_of("CONFIG_FILE") {
         Some(config_path_text) => {
             let config_path = PathBuf::from(config_path_text);
             if !config_path.exists() {
@@ -267,6 +276,29 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
         }
         None => None,
     };
+
+    // Replace shell variables in config file values if they are present
+    if config.is_some() {
+        let config = config.as_mut().unwrap();
+        let map_func = |text: String| {
+            shellexpand::env_with_context(text.as_str(), shell_context)
+                .unwrap()
+                .to_string()
+        };
+
+        config.jar_file = config.jar_file.clone().map(map_func);
+        config.jvm = config.jvm.clone().map(map_func);
+        config.working_dir = config.working_dir.clone().map(map_func);
+        config.jvm_args = config
+            .jvm_args
+            .clone()
+            .map(|args| args.into_iter().map(map_func).collect());
+        config.server_args = config
+            .server_args
+            .clone()
+            .map(|args| args.into_iter().map(map_func).collect());
+    }
+
     let config = config.as_ref();
 
     // Find Java executable
