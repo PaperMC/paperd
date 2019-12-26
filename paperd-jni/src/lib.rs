@@ -22,6 +22,7 @@ extern crate nix;
 #[macro_use]
 mod util;
 
+use core::convert::TryInto;
 use crate::util::{get_path_string, throw};
 use core::ffi::c_void;
 use core::mem::size_of;
@@ -142,7 +143,7 @@ pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_sendMe
     }
 
     let mut msg = Message {
-        m_type,
+        m_type: m_type.try_into().unwrap(),
         data: Data {
             response_chan,
             response_pid: response_pid as u32,
