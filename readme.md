@@ -3,7 +3,7 @@ paperd [![Current Release](https://img.shields.io/badge/release-1.0.0-orange.svg
 
 | Build          | Status |
 |----------------|--------|
-| Latest Commit  | [![Build Status](https://travis-ci.org/PaperMC/paperd.svg?branch=master)](https://travis-ci.org/PaperMC/paperd) |
+| Latest Commit  | [![Build Status](https://travis-ci.org/PaperMC/paperd.svg?branch=master)](https://travis-ci.org/PaperMC/paperd/branches) |
 | Latest Release | [![Build Status](https://papermc.io/ci/job/paperd/badge/icon)](https://papermc.io/ci/job/paperd/) |
 
 paperd is a wrapper application which enables the PaperMC Minecraft server to be run more properly in the background as
