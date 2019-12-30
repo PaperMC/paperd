@@ -7,6 +7,9 @@ env:
   - CMD="build"
   - CMD="build --features console"
 matrix:
+  include:
+    - env: CMD="package"
+      services: docker
   allow_failures:
     - rust: beta
     - rust: nightly
