@@ -28,6 +28,7 @@ use signal_hook::iterator::Signals;
 use signal_hook::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTRAP};
 use std::borrow::Cow;
 use std::cmp::{max, min};
+use std::convert::TryFrom;
 use std::fs::{canonicalize, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -412,7 +413,7 @@ fn forward_signals(pid: u32) -> Result<Signals, i32> {
     let signals_bg = signals.clone();
     thread::spawn(move || {
         for sig_int in signals_bg.forever() {
-            if let Ok(sig) = signal::Signal::from_c_int(sig_int) {
+            if let Ok(sig) = signal::Signal::try_from(sig_int) {
                 let _ = signal::kill(Pid::from_raw(pid as i32), sig);
             }
         }

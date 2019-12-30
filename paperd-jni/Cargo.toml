@@ -13,6 +13,6 @@ lto = true
 codegen-units = 1
 
 [dependencies]
-jni = "0.13.0"
-nix = "0.14.1"
+jni = "0.14.0"
+nix = "0.16.1"
 paperd-lib = { path = "../paperd-lib/" }

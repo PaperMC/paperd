@@ -113,7 +113,7 @@ while [[ -n "$1" ]]; do
         exit
         ;;
     "package")
-        docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/usr/src/paperd -w /usr/src/paperd rust:1.36.0 ./build.sh build --release --features console
+        docker run --rm --user "$(id -u)":"$(id -g)" -v "$PWD":/usr/src/paperd -w /usr/src/paperd rust:1.40.0 ./build.sh clean build --release --features console
         ;;
     *)
         help
