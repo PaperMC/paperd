@@ -20,7 +20,6 @@ extern crate crossbeam_channel;
 extern crate ncurses;
 extern crate nix;
 extern crate rand;
-extern crate regex;
 extern crate serde;
 extern crate serde_json;
 extern crate shellexpand;

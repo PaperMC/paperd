@@ -271,10 +271,11 @@ impl StyledMessage {
             };
 
             if found_index > 0 {
+                // Grab text that happened before the found prefix
                 result.push(MessageElement::Text(slice[..found_index].to_string()));
             }
 
-            let is_mc_code = slice
+            let is_mc_code = slice[found_index..]
                 .chars()
                 .nth(0)
                 .filter(|c| *c == AnsiCode::mc_prefix())
@@ -282,7 +283,7 @@ impl StyledMessage {
 
             // Once we have found the next code, we need to find the end
             let end_index = if is_mc_code {
-                // MC codes are only 2 chars long
+                // MC codes are only 2 bytes long
                 found_index + 2
             } else {
                 // We have to actually find the last char for ANSI codes
