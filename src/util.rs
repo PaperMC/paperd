@@ -19,7 +19,6 @@ use nix::errno::Errno::ESRCH;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 use nix::Error;
-use std::cmp::min;
 use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::{env, fs, io};
@@ -88,7 +87,7 @@ pub fn find_prog(searches: &[(&str, &str)]) -> Option<PathBuf> {
 }
 
 pub fn tps_cap(tps: f64) -> f64 {
-    return min(tps, 20.0);
+    return tps.min(20.0);
 }
 
 pub trait ExitError<T> {
