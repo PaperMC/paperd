@@ -52,7 +52,7 @@ pub fn throw(env: &JNIEnv, message: &str) {
 pub fn get_class_name(env: &JNIEnv, obj: JObject) -> String {
     return env
         .get_object_class(obj)
-        .and_then(|class| env.call_method(class.into(), "getName", "()Ljava/lang/String;", &[]))
+        .and_then(|class| env.call_method(class, "getName", "()Ljava/lang/String;", &[]))
         .and_then(|class_name| class_name.l())
         .and_then(|class_name| env.get_string(class_name.into()))
         .map(|str| String::from(str))

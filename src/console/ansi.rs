@@ -44,8 +44,8 @@ const WHITE_PAIR: i16 = 16;
 
 // These obviously don't cover all ANSI code cases, not even close. These simply represent the
 // possible output codes from TerminalConsoleAppender:
-//   - https://github.com/Minecrell/TerminalConsoleAppender/blob/master/src/main/java/net/minecrell/terminalconsole/MinecraftFormattingConverter.java#L89-L110
-//   - https://github.com/Minecrell/TerminalConsoleAppender/blob/master/src/main/java/net/minecrell/terminalconsole/HighlightErrorConverter.java#L62-L64
+//   - https://github.com/Minecrell/TerminalConsoleAppender/blob/b8117c8f0301c832a06c4fcbbf372528a70bcaf4/src/main/java/net/minecrell/terminalconsole/MinecraftFormattingConverter.java#L89-L110
+//   - https://github.com/Minecrell/TerminalConsoleAppender/blob/b8117c8f0301c832a06c4fcbbf372528a70bcaf4/src/main/java/net/minecrell/terminalconsole/HighlightErrorConverter.java#L62-L64
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AnsiCode {
     Black,         // §0
@@ -216,7 +216,7 @@ impl AnsiCode {
             AnsiCode::Warn,
             AnsiCode::Error,
         ];
-        return CODES.into_iter();
+        return CODES.iter();
     }
 
     fn enable(self) {

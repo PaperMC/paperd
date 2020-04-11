@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "jni"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cesu8 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -114,7 +114,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "nix"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -128,8 +128,8 @@ dependencies = [
 name = "paperd-jni"
 version = "1.1.0-snapshot"
 dependencies = [
- "jni 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "nix 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "jni 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "paperd-lib 1.1.0-snapshot",
 ]
 
@@ -137,7 +137,7 @@ dependencies = [
 name = "paperd-lib"
 version = "1.1.0-snapshot"
 dependencies = [
- "nix 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -220,12 +220,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum combine 3.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "da3da6baa321ec19e1cc41d31bf599f00c783d0517095cdaf0332e3fe8d20680"
 "checksum either 1.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5527cfe0d098f36e3f8839852688e63c8fff1c90b2b405aef730615f9a7bcf7b"
 "checksum error-chain 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3ab49e9dcb602294bc42f9a7dfc9bc6e936fca4418ea300dbfb84fe16de0b7d9"
-"checksum jni 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1981310da491a4f0f815238097d0d43d8072732b5ae5f8bd0d8eadf5bf245402"
+"checksum jni 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)" = "22bbdc25b49340bc4fc3d9c96dd84d878c4beeca35e3651efa53db51a68d7d4d"
 "checksum jni-sys 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 "checksum libc 0.2.60 (registry+https://github.com/rust-lang/crates.io-index)" = "d44e80633f007889c7eff624b709ab43c92d708caad982295768a7b13ca3b5eb"
 "checksum log 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)" = "c275b6ad54070ac2d665eef9197db647b32239c9d244bfb6f041a766d00da5b3"
 "checksum memchr 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"
-"checksum nix 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dd0eaf8df8bab402257e0a5c17a254e4cc1f72a93588a1ddfb5d356c801aa7cb"
+"checksum nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)" = "50e4785f2c3b7589a0d0c1dd60285e1188adac4006e8abd6dd578e1567027363"
 "checksum rustc-demangle 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)" = "a7f4dccf6f4891ebcc0c39f9b6eb1a83b9bf5d747cb439ec6fba4f3b977038af"
 "checksum same-file 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8f20c4be53a8a1ff4c1f1b2bd14570d2f634628709752f0702ecdd2b3f9a5267"
 "checksum unreachable 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"

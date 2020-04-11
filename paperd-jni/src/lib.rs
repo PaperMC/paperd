@@ -259,12 +259,12 @@ pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_pidExi
     _: JClass,
     pid: jint,
 ) -> jboolean {
-    if let Err(Sys(e)) = kill(Pid::from_raw(pid), None) {
+    return if let Err(Sys(e)) = kill(Pid::from_raw(pid), None) {
         if e != Errno::ESRCH {
             throw(&env, e.desc());
         }
-        return JNI_FALSE;
+        JNI_FALSE
     } else {
-        return JNI_TRUE;
-    }
+        JNI_TRUE
+    };
 }
