@@ -98,11 +98,13 @@ pub fn console(sub_m: &ArgMatches) -> Result<(), i32> {
     let (pid_file, pid) = get_pid(sub_m)?;
     check_protocol(&pid_file)?;
 
-    // Open logs channel
-    let chan = messaging::open_message_channel(&pid_file)?;
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let mut chan = messaging::open_message_channel(&pid_file)?;
     {
         let message = StatusMessage {};
         let response_chan = chan
+            .with_stopper(&stop)
             .send_message::<StatusMessage>(message)?
             .expect("Failed to create response channel");
         if let Err(_) = response_chan.receive_message::<StatusMessageResponse>() {
@@ -112,12 +114,14 @@ pub fn console(sub_m: &ArgMatches) -> Result<(), i32> {
         }
     }
 
+    // Open logs channel
     let message = LogsMessage {};
     let response_chan = chan
+        .with_stopper(&stop)
         .send_message::<LogsMessage>(message)?
         .expect("Failed to create response channel");
 
-    let res = Term::new(&pid_file, &response_chan).run_term();
+    let res = Term::new(&pid_file, &response_chan, stop.clone()).run_term();
 
     if is_pid_running(pid) {
         let end = EndLogsListenerMessage {
@@ -134,15 +138,17 @@ struct Term<'a> {
     resp_chan: &'a ResponseChannel,
     signals: Signals,
     completions: Option<Completions>,
+    stop: Arc<AtomicBool>,
 }
 
 impl<'a> Term<'a> {
-    fn new(pid_file: &'a PathBuf, resp_chan: &'a ResponseChannel) -> Self {
+    fn new(pid_file: &'a PathBuf, resp_chan: &'a ResponseChannel, stop: Arc<AtomicBool>) -> Self {
         return Term {
             pid_file,
             resp_chan,
             signals: Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGTRAP, SIGABRT, SIGTERM]).unwrap(),
             completions: None,
+            stop,
         };
     }
 
@@ -175,16 +181,14 @@ impl<'a> Term<'a> {
     }
 
     fn do_term_loop(self) -> Result<(), i32> {
-        let stop = Arc::new(AtomicBool::new(false));
-
         // line buffer, holds the log messages we receive from the server
         let buffer = Arc::new(Mutex::new(Vec::<StyledMessage>::new()));
 
         // Set up listeners
-        self.start_stop_listener_thread(stop.clone())?;
-        self.start_signals_listener_thread(stop.clone());
+        self.start_stop_listener_thread(self.stop.clone())?;
+        self.start_signals_listener_thread(self.stop.clone());
 
-        self.start_new_message_listener_thread(stop.clone(), buffer.clone());
+        self.start_new_message_listener_thread(self.stop.clone(), buffer.clone());
 
         let status = Arc::new(Mutex::new(CurrentStatus {
             mode: ArrowMode::INPUT,
@@ -194,9 +198,10 @@ impl<'a> Term<'a> {
             server_name: "".to_string(),
         }));
 
-        self.start_status_bar_thread(stop.clone(), status.clone());
+        self.start_status_bar_thread(self.stop.clone(), status.clone());
 
-        return self.input_loop(stop.clone(), buffer.clone(), status.clone());
+        let loop_stop = self.stop.clone();
+        return self.input_loop(loop_stop, buffer.clone(), status.clone());
     }
 
     fn start_stop_listener_thread(&self, stop: Arc<AtomicBool>) -> Result<(), i32> {
@@ -209,7 +214,7 @@ impl<'a> Term<'a> {
                     stop.store(true, Ordering::SeqCst);
                     break;
                 } else {
-                    sleep(Duration::from_secs(2));
+                    sleep(Duration::from_secs(1));
                 }
             }
         });
@@ -294,7 +299,7 @@ impl<'a> Term<'a> {
             }
 
             while !stop.load(Ordering::SeqCst) {
-                let chan = match open_message_channel(&pid_file_bg) {
+                let mut chan = match open_message_channel(&pid_file_bg) {
                     Ok(c) => c,
                     Err(_) => {
                         handle_error!(stop);
@@ -302,7 +307,10 @@ impl<'a> Term<'a> {
                 };
 
                 let resp: ConsoleStatusMessageResponse = {
-                    let response_chan = match chan.send_message(ConsoleStatusMessage {}) {
+                    let response_chan = match chan
+                        .with_stopper(&stop)
+                        .send_message(ConsoleStatusMessage {})
+                    {
                         Ok(s) => s.expect("Failed to create response channel"),
                         Err(_) => {
                             handle_error!(stop);
@@ -556,7 +564,7 @@ impl<'a> Term<'a> {
                         if input.len() == 0 {
                             self.completions = None
                         } else {
-                            request_completions(&input, &self.pid_file, &comp_res_send);
+                            request_completions(&input, &self.pid_file, &comp_res_send, &self.stop);
                         }
 
                         refresh();
@@ -613,7 +621,7 @@ impl<'a> Term<'a> {
                             }
                         }
 
-                        request_completions(&input, &self.pid_file, &comp_res_send);
+                        request_completions(&input, &self.pid_file, &comp_res_send, &self.stop);
                     }
                 }
             }
@@ -722,11 +730,11 @@ impl Completions {
                 return (Some(result), Completions::NO_ACTION);
             }
             NORMAL_KEY_ENTER | KEY_ENTER => {
-                if self.index.is_none() {
-                    return (None, Completions::CLOSE_WINDOW | Completions::SEND_KEY);
+                return if self.index.is_none() {
+                    (None, Completions::CLOSE_WINDOW | Completions::SEND_KEY)
                 } else {
                     let result = self.suggestions[self.index.unwrap()].clone();
-                    return (Some(result), Completions::NO_ACTION);
+                    (Some(result), Completions::NO_ACTION)
                 }
             }
             27 | CTRL_F => {
@@ -767,7 +775,12 @@ impl Drop for Completions {
     }
 }
 
-fn request_completions(input: &Vec<char>, pid_file: &PathBuf, chan: &Sender<Vec<String>>) {
+fn request_completions(
+    input: &Vec<char>,
+    pid_file: &PathBuf,
+    chan: &Sender<Vec<String>>,
+    stop: &Arc<AtomicBool>,
+) {
     let command_text: String = input.iter().collect();
     if command_text.len() == 0 {
         return;
@@ -775,8 +788,9 @@ fn request_completions(input: &Vec<char>, pid_file: &PathBuf, chan: &Sender<Vec<
 
     let pid_file_bg = pid_file.clone();
     let chan_bg = chan.clone();
+    let stop_bg = stop.clone();
     thread::spawn(move || {
-        let channel = match open_message_channel(&pid_file_bg) {
+        let mut channel = match open_message_channel(&pid_file_bg) {
             Ok(channel) => channel,
             Err(_) => return,
         };
@@ -784,10 +798,17 @@ fn request_completions(input: &Vec<char>, pid_file: &PathBuf, chan: &Sender<Vec<
         let message = TabCompleteMessage {
             command: command_text,
         };
-        let response = match channel.send_message::<TabCompleteMessage>(message) {
+        let response = match channel
+            .with_stopper(&stop_bg)
+            .send_message::<TabCompleteMessage>(message)
+        {
             Ok(resp) => resp.expect("Failed to create response channel"),
             Err(_) => return,
         };
+
+        if stop_bg.load(Ordering::SeqCst) {
+            return;
+        }
 
         let received = match response.receive_message::<TabCompleteMessageResponse>() {
             Ok(resp) => resp,

@@ -4,11 +4,11 @@ rust:
   - beta
   - nightly
 env:
-  - CMD="build"
-  - CMD="build --features console"
+  - CMD="cargo build"
+  - CMD="cargo build --features console"
 matrix:
   include:
-    - env: CMD="package"
+    - env: CMD="./build_release.sh"
       services: docker
   allow_failures:
     - rust: beta
@@ -16,7 +16,7 @@ matrix:
   fast_finish: true
 cache: cargo
 script:
-  - ./build.sh $CMD
+  - $CMD
 addons:
   apt:
     packages:

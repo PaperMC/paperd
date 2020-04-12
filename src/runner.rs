@@ -82,18 +82,18 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
                 thread::yield_now();
             }
 
-            if pid_file.exists() {
+            return if pid_file.exists() {
                 println!("Server started in the background. PID: {}", pid);
                 if sub_m.is_present("TAIL") {
                     let log_file = find_log_file(&pid_file)?;
-                    return tail(log_file, 0, true);
+                    tail(log_file, 0, true)
                 } else {
-                    return Ok(());
+                    Ok(())
                 }
             } else {
                 eprintln!("Timeout while waiting for server to start.");
-                return Err(1);
-            }
+                Err(1)
+            };
         }
         Ok(Status::CONTINUE) => {}
         Err(err) => return Err(err),

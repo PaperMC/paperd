@@ -29,6 +29,8 @@ use std::path::Path;
 use std::process;
 use std::ptr::null_mut;
 use std::str::from_utf8;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
     let pid_file = pid_file.as_ref();
@@ -62,7 +64,10 @@ pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChanne
         return Err(1);
     }
 
-    return Ok(MessageChannel { msq_id });
+    return Ok(MessageChannel {
+        msq_id,
+        is_running: None,
+    });
 }
 
 pub trait MessageHandler {
@@ -72,6 +77,7 @@ pub trait MessageHandler {
 
 pub struct MessageChannel {
     msq_id: i32,
+    is_running: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Deserialize)]
@@ -81,6 +87,11 @@ struct ServerErrorMessage {
 }
 
 impl MessageChannel {
+    pub fn with_stopper(&mut self, is_running: &Arc<AtomicBool>) -> &mut MessageChannel {
+        self.is_running = Some(is_running.clone());
+        return self;
+    }
+
     pub fn send_message<T>(&self, message: T) -> Result<Option<ResponseChannel>, i32>
     where
         T: MessageHandler + Serialize,
@@ -124,7 +135,10 @@ impl MessageChannel {
         }
 
         if exp_resp {
-            return Ok(Some(ResponseChannel::new(receive_chan)));
+            return Ok(Some(ResponseChannel::new(
+                receive_chan,
+                self.is_running.as_ref().map(|b| b.clone()),
+            )));
         }
 
         return Ok(None);
@@ -166,7 +180,7 @@ impl MessageChannel {
     }
 
     pub fn close(&self) {
-        let _ = close(self.msq_id);
+        close(self.msq_id);
     }
 }
 
@@ -187,12 +201,14 @@ fn create_receive_channel() -> Result<i32, i32> {
 #[derive(Clone)]
 pub struct ResponseChannel {
     pub response_chan: i32,
+    is_stopping: Option<Arc<AtomicBool>>,
 }
 
 impl ResponseChannel {
-    pub fn new(chan: i32) -> ResponseChannel {
+    pub fn new(chan: i32, is_running: Option<Arc<AtomicBool>>) -> ResponseChannel {
         return ResponseChannel {
             response_chan: chan,
+            is_stopping: is_running,
         };
     }
 
@@ -211,7 +227,7 @@ impl ResponseChannel {
         let mut buffer = Vec::<u8>::new();
 
         let mut is_done = false;
-        while !is_done {
+        while !is_done && !self.is_stopping() {
             let res = unsafe {
                 msgrcv(
                     self.response_chan,
@@ -221,6 +237,10 @@ impl ResponseChannel {
                     0,
                 )
             };
+
+            if self.is_stopping() {
+                return Err(0);
+            }
 
             if res == -1 {
                 let msg = Errno::last().desc();
@@ -239,6 +259,10 @@ impl ResponseChannel {
                 let data = &message.data.message[..len];
                 buffer.extend(data);
             }
+        }
+
+        if self.is_stopping() {
+            return Err(0);
         }
 
         let text = match from_utf8(buffer.as_slice()) {
@@ -263,20 +287,22 @@ impl ResponseChannel {
             },
         };
     }
+
+    fn is_stopping(&self) -> bool {
+        return self
+            .is_stopping
+            .as_ref()
+            .map(|b| b.load(Ordering::SeqCst))
+            .unwrap_or(false);
+    }
 }
 
 impl Drop for ResponseChannel {
     fn drop(&mut self) {
-        let _ = close(self.response_chan);
+        close(self.response_chan);
     }
 }
 
-fn close(msq_id: i32) -> Result<(), i32> {
-    let res = unsafe { msgctl(msq_id, IPC_RMID, null_mut()) };
-    if res == -1 {
-        let msg = Errno::last().desc();
-        eprintln!("Failed to cleanup message channel: {}: {}", msq_id, msg);
-        return Err(1);
-    }
-    return Ok(());
+fn close(msq_id: i32) {
+    let _ = unsafe { msgctl(msq_id, IPC_RMID, null_mut()) };
 }

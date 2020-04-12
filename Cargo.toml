@@ -16,7 +16,7 @@ codegen-units = 1
 [dependencies]
 clap = "2.33.0"
 crossbeam-channel = "0.4.2"
-ncurses = {version = "5.99.0", optional = true }
+ncurses = { version = "5.99.0", optional = true }
 nix = "0.17.0"
 rand = "0.7.3"
 serde = { version = "1.0.106", features = ["derive"] }
@@ -26,3 +26,6 @@ signal-hook = "0.1.13"
 sys-info = "0.6.0"
 zip = "0.5.5"
 paperd-lib = { path = "./paperd-lib/" }
+
+[build-dependencies]
+flate2 = "1.0.14"
