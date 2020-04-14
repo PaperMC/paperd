@@ -690,7 +690,7 @@ impl Completions {
             if i >= self.lines {
                 break;
             }
-            let current_index_selected = self.index.is_some() && i == self.index.unwrap();
+            let current_index_selected = self.index.map_or(false, |idx| i == idx);
             if current_index_selected {
                 wattroff(self.window, COLOR_PAIR(COMPLETE_TEXT_PAIR));
                 wattron(self.window, COLOR_PAIR(COMPLETE_SELECTED_PAIR));
@@ -714,13 +714,13 @@ impl Completions {
     fn handle_key(&mut self, ch: i32) -> (Option<String>, u8) {
         match ch {
             KEY_UP => {
-                if self.index.is_none() || self.index.unwrap() < self.lines - 1 {
+                if self.index.map_or(true, |idx| idx < self.lines - 1) {
                     self.index = Some(self.index.unwrap_or(0) + 1);
                     self.redraw();
                 }
             }
             KEY_DOWN => {
-                if self.index.is_some() && self.index.unwrap() > 0 {
+                if self.index.map_or(false, |idx| idx > 0) {
                     self.index = Some(self.index.unwrap() - 1);
                     self.redraw();
                 }
