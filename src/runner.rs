@@ -279,8 +279,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     };
 
     // Replace shell variables in config file values if they are present
-    if config.is_some() {
-        let config = config.as_mut().unwrap();
+    if Some(config) = config.as_mut() {
         let map_func = |text: String| {
             shellexpand::env_with_context(text.as_str(), shell_context)
                 .unwrap()
