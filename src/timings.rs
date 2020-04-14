@@ -38,15 +38,15 @@ pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
         if res.done {
             break;
         }
-        if res.message.is_some() {
+        if let Some(msg) = res.message {
             #[cfg(feature = "console")]
             println!(
                 "{}",
-                ansi::StyledMessage::parse(res.message.unwrap().as_str()).get_string()
+                ansi::StyledMessage::parse(msg.as_str()).get_string()
             );
 
             #[cfg(not(feature = "console"))]
-            println!("{}", mc_colors(res.message.unwrap().as_str()));
+            println!("{}", mc_colors(msg.as_str()));
         }
     }
 
