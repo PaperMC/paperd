@@ -730,11 +730,12 @@ impl Completions {
                 return (Some(result), Completions::NO_ACTION);
             }
             NORMAL_KEY_ENTER | KEY_ENTER => {
-                return if self.index.is_none() {
-                    (None, Completions::CLOSE_WINDOW | Completions::SEND_KEY)
-                } else {
-                    let result = self.suggestions[self.index.unwrap()].clone();
-                    (Some(result), Completions::NO_ACTION)
+                return match self.index {
+                    Some(idx) => {
+                        let result = self.suggestions[idx].clone();
+                        (Some(result), Completions::NO_ACTION)
+                    },
+                    None => (None, Completions::CLOSE_WINDOW | Completions::SEND_KEY),
                 }
             }
             27 | CTRL_F => {
