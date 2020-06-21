@@ -12,39 +12,39 @@ extern "C" {
  * Method:    createQueue
  * Signature: (Ljava/nio/file/Path;)I
  */
-JNIEXPORT jint JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_createQueue
+JNIEXPORT jint JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_createSocket
   (JNIEnv *, jclass, jobject);
 
 /*
  * Class:     com_destroystokyo_paper_daemon_PaperDaemonJni
- * Method:    sendMessage
- * Signature: (ILcom/destroystokyo/paper/daemon/MsgBuf;)V
+ * Method:    acceptConnection
+ * Signature: (I)Ljava/util/OptionalInt;
  */
-JNIEXPORT void JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_sendMessage
-  (JNIEnv *, jclass, jint, jobject);
+JNIEXPORT jint JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_acceptConnection
+  (JNIEnv *, jclass, jint);
 
 /*
  * Class:     com_destroystokyo_paper_daemon_PaperDaemonJni
  * Method:    receiveMessage
- * Signature: (I)Lcom/destroystokyo/paper/daemon/MsgBuf;
+ * Signature: (I)Lcom/destroystokyo/paper/daemon/PaperDaemonMessageBuffer;
  */
 JNIEXPORT jobject JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_receiveMessage
   (JNIEnv *, jclass, jint);
 
 /*
  * Class:     com_destroystokyo_paper_daemon_PaperDaemonJni
- * Method:    deleteQueue
- * Signature: (I)V
+ * Method:    sendMessage
+ * Signature: (ILcom/destroystokyo/paper/daemon/PaperDaemonMessageBuffer;)V
  */
-JNIEXPORT void JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_deleteQueue
-  (JNIEnv *, jclass, jint);
+JNIEXPORT void JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_sendMessage
+  (JNIEnv *, jclass, jint, jobject);
 
 /*
  * Class:     com_destroystokyo_paper_daemon_PaperDaemonJni
- * Method:    pidExists
- * Signature: (I)Z
+ * Method:    closeSocket
+ * Signature: (I)V
  */
-JNIEXPORT jboolean JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_pidExists
+JNIEXPORT void JNICALL Java_com_destroystokyo_paper_daemon_PaperDaemonJni_closeSocket
   (JNIEnv *, jclass, jint);
 
 #ifdef __cplusplus

@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::util::{find_prog, get_pid, ExitError};
+use crate::util::{find_program, find_sock_file, ExitError, ExitValue};
 use clap::ArgMatches;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn log(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid, _) = get_pid(sub_m)?;
-    let log_file = find_log_file(pid)?;
+pub fn log(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let sock_file = find_sock_file(sub_m)?;
+    let log_file = find_log_file(&sock_file)?;
 
     let follow = sub_m.is_present("TAIL");
     let lines = match sub_m.value_of("LINES") {
@@ -29,36 +29,36 @@ pub fn log(sub_m: &ArgMatches) -> Result<(), i32> {
             .conv("Failed to parse command line argument")?,
         None => {
             eprintln!("No value provided for --lines argument");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
     return tail(log_file, lines, follow);
 }
 
-pub fn find_log_file<P: AsRef<Path>>(pid_file: P) -> Result<PathBuf, i32> {
-    let pid = pid_file.as_ref();
-    return match pid.parent().map(|p| p.join("logs/latest.log")) {
+pub fn find_log_file<P: AsRef<Path>>(sock_file: P) -> Result<PathBuf, ExitValue> {
+    let sock_file = sock_file.as_ref();
+    return match sock_file.parent().map(|p| p.join("logs/latest.log")) {
         Some(f) => Ok(f),
         None => {
             eprintln!("Failed to find log file in logs/latest.log");
-            Err(1)
+            Err(ExitValue::Code(1))
         }
     };
 }
 
-pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), i32> {
+pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), ExitValue> {
     let path = path.as_ref();
     if !path.is_file() {
         eprintln!("file could not be found: {}", path.to_string_lossy());
-        return Err(1);
+        return Err(ExitValue::Code(1));
     }
 
-    let tail_prog = match find_prog(&[("PATH", "tail")]) {
+    let tail_prog = match find_program(&[("PATH", "tail")]) {
         Some(t) => t,
         None => {
             eprintln!("Failed to find 'tail' program on the PATH");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -80,7 +80,7 @@ pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), i32
                 path.to_string_lossy(),
                 err
             );
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -89,7 +89,7 @@ pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), i32
             if status == 0 {
                 Ok(())
             } else {
-                Err(status)
+                Err(ExitValue::Code(status))
             }
         }
         Err(err) => {
@@ -98,7 +98,7 @@ pub fn tail<P: AsRef<Path>>(path: P, lines: i32, follow: bool) -> Result<(), i32
                 path.to_string_lossy(),
                 err
             );
-            Err(1)
+            Err(ExitValue::Code(1))
         }
     };
 }

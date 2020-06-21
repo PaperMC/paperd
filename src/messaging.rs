@@ -13,297 +13,136 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use nix::errno::Errno;
-use nix::libc::{ftok, key_t};
-use paperd_lib::libc::{msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
-use paperd_lib::{Data, Message, MESSAGE_LENGTH, MESSAGE_TYPE};
-use rand::RngCore;
+use crate::messages::{MessageHandler, ServerErrorMessage};
+use crate::util::{ExitError, ExitValue};
+use paperd_lib::{close_socket, receive_message, send_message, Message, MessageHeader, Socket};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::cmp::min;
-use std::ffi::CString;
-use std::mem::size_of;
-use std::os::raw::c_void;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
-use std::process;
-use std::ptr::null_mut;
-use std::str::from_utf8;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use serde::Serialize;
+#[cfg(feature = "console")]
+use {nix::errno::Errno, paperd_lib::Error};
 
-pub fn open_message_channel<P: AsRef<Path>>(pid_file: P) -> Result<MessageChannel, i32> {
-    let pid_file = pid_file.as_ref();
-    let pid_file = match pid_file.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            eprintln!("Failed to canonicalize {}", pid_file.to_string_lossy());
-            return Err(1);
+pub struct MessageSocket {
+    sock: Socket,
+    pub print_err: bool,
+}
+
+macro_rules! message_resp {
+    ($msg:ident, $self:ident) => {
+        match $msg {
+            Some(m) => m,
+            None => {
+                if $self.print_err {
+                    eprintln!("The Paper server closed the socket");
+                }
+                return Err(ExitValue::Code(1));
+            }
         }
     };
+}
 
-    let file_name = match CString::new(pid_file.as_os_str().to_os_string().as_bytes()) {
-        Ok(s) => s,
-        Err(_) => {
-            eprintln!(
-                "Failed to initialize message channel for {}",
-                pid_file.to_string_lossy()
-            );
-            return Err(1);
-        }
-    };
-
-    let msq_id: i32 = unsafe {
-        let msg_key = ftok(file_name.as_ptr(), 'P' as i32);
-        msgget(msg_key, 0o666 | IPC_CREAT)
-    };
-
-    if msq_id == -1 {
-        let msg = Errno::last().desc();
-        eprintln!("Failed to open message channel: {}: {}", msq_id, msg);
-        return Err(1);
+impl MessageSocket {
+    pub fn new(sock: Socket) -> Self {
+        return MessageSocket {
+            sock,
+            print_err: true,
+        };
     }
 
-    return Ok(MessageChannel {
-        msq_id,
-        is_running: None,
-    });
-}
-
-pub trait MessageHandler {
-    fn type_id() -> i16;
-    fn expect_response() -> bool;
-}
-
-pub struct MessageChannel {
-    msq_id: i32,
-    is_running: Option<Arc<AtomicBool>>,
-}
-
-#[derive(Deserialize)]
-struct ServerErrorMessage {
-    #[serde(rename = "error")]
-    error: String,
-}
-
-impl MessageChannel {
-    #[cfg(feature = "console")]
-    pub fn with_stopper(&mut self, is_running: &Arc<AtomicBool>) -> &mut MessageChannel {
-        self.is_running = Some(is_running.clone());
-        return self;
-    }
-
-    pub fn send_message<T>(&self, message: T) -> Result<Option<ResponseChannel>, i32>
+    pub fn send_message<T>(&self, message: &T) -> Result<(), ExitValue>
     where
         T: MessageHandler + Serialize,
     {
-        let exp_resp = T::expect_response();
-        let receive_chan = if exp_resp {
-            create_receive_channel()?
-        } else {
-            -1
-        };
-
-        let msg = match serde_json::to_string(&message) {
+        let msg = match serde_json::to_string(message) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Failed to serialize JSON: {}", e);
-                return Err(1);
+                if self.print_err {
+                    eprintln!("Failed to serialize JSON: {}", e);
+                }
+                return Err(ExitValue::Code(1));
             }
         };
 
-        let mut data = msg.as_bytes();
-
-        while data.len() > 0 {
-            let size = min(data.len(), MESSAGE_LENGTH);
-            let ret = self.send_paged_message(
-                T::type_id(),
-                receive_chan,
-                &data[..size],
-                size == data.len(),
-            );
-
-            if ret == -1 {
-                let msg = Errno::last().desc();
-                eprintln!(
-                    "Failed to send message to channel: {}: {}",
-                    self.msq_id, msg
-                );
-                return Err(1);
-            }
-
-            data = &data[size..];
-        }
-
-        if exp_resp {
-            return Ok(Some(ResponseChannel::new(
-                receive_chan,
-                self.is_running.as_ref().map(|b| b.clone()),
-            )));
-        }
-
-        return Ok(None);
-    }
-
-    fn send_paged_message(&self, type_id: i16, receive_chan: i32, msg: &[u8], fin: bool) -> i32 {
-        let mut message = Message {
-            m_type: MESSAGE_TYPE,
-            data: Data {
-                response_chan: receive_chan,
-                response_pid: process::id(),
-                message_type: type_id,
-                message_length: 0,
-                message: [0; MESSAGE_LENGTH],
+        let message = Message {
+            header: MessageHeader {
+                message_type: T::type_id(),
+                message_length: msg.len() as i64,
             },
+            message_text: msg,
         };
 
-        let len = msg.len();
-        {
-            let message_slice = &mut message.data.message[..len];
-            message_slice.copy_from_slice(msg);
-        }
-
-        let mut len = len as u8;
-        if fin {
-            // Set the far left bit to denote this is the end of a message
-            len |= 0x80;
-        }
-        message.data.message_length = len;
-
-        return unsafe {
-            msgsnd(
-                self.msq_id,
-                &mut message as *mut _ as *mut c_void,
-                size_of::<Data>(),
-                0,
-            )
-        };
-    }
-
-    pub fn close(&self) {
-        close(self.msq_id);
-    }
-}
-
-fn create_receive_channel() -> Result<i32, i32> {
-    let mut rng = rand::thread_rng();
-    let key = rng.next_u32();
-
-    let msqid = unsafe { msgget(key as key_t, 0o666 | IPC_CREAT) };
-    if msqid == -1 {
-        let msg = Errno::last().desc();
-        eprintln!("Failed to open message channel: {}: {}", msqid, msg);
-        return Err(1);
-    }
-
-    return Ok(msqid);
-}
-
-#[derive(Clone)]
-pub struct ResponseChannel {
-    pub response_chan: i32,
-    is_stopping: Option<Arc<AtomicBool>>,
-}
-
-impl ResponseChannel {
-    pub fn new(chan: i32, is_running: Option<Arc<AtomicBool>>) -> ResponseChannel {
-        return ResponseChannel {
-            response_chan: chan,
-            is_stopping: is_running,
-        };
-    }
-
-    pub fn receive_message<R: DeserializeOwned>(&self) -> Result<R, i32> {
-        let mut message = Message {
-            m_type: MESSAGE_TYPE,
-            data: Data {
-                response_chan: 0,
-                response_pid: 0,
-                message_type: 0,
-                message_length: 0,
-                message: [0; MESSAGE_LENGTH],
-            },
+        let res = send_message(self.sock, &message);
+        if self.print_err {
+            res.conv("Error attempting to send message to Paper server")?;
+        } else {
+            res.map_err(|_| ExitValue::Code(1))?;
         };
 
-        let mut buffer = Vec::<u8>::new();
+        return Ok(());
+    }
 
-        let mut is_done = false;
-        while !is_done && !self.is_stopping() {
-            let res = unsafe {
-                msgrcv(
-                    self.response_chan,
-                    &mut message as *mut _ as *mut c_void,
-                    size_of::<Data>(),
-                    MESSAGE_TYPE,
-                    0,
-                )
-            };
+    pub fn receive_message<R: DeserializeOwned>(&self) -> Result<R, ExitValue> {
+        return self.receive_loop(|| true);
+    }
 
-            if self.is_stopping() {
-                return Err(0);
-            }
-
-            if res == -1 {
-                let msg = Errno::last().desc();
-                eprintln!(
-                    "Failed to receive message from channel: {}: {}",
-                    self.response_chan, msg
-                );
-                return Err(1);
-            }
-
-            const MASK: u8 = 0x80;
-            is_done = message.data.message_length & MASK == MASK;
-            let len = (message.data.message_length & 0x7F) as usize;
-
-            {
-                let data = &message.data.message[..len];
-                buffer.extend(data);
-            }
-        }
-
-        if self.is_stopping() {
-            return Err(0);
-        }
-
-        let text = match from_utf8(buffer.as_slice()) {
-            Ok(s) => s.to_string(),
-            Err(e) => {
-                eprintln!("Failed to decode response from server: {}", e);
-                return Err(1);
+    pub fn receive_loop<R, F>(&self, keep_waiting_filter: F) -> Result<R, ExitValue>
+    where
+        R: DeserializeOwned,
+        F: Fn() -> bool,
+    {
+        let msg = loop {
+            match receive_message(self.sock) {
+                Ok(m) => break m,
+                Err(Error::Nix(nix::Error::Sys(Errno::EAGAIN), _)) => {
+                    if keep_waiting_filter() {
+                        continue;
+                    } else {
+                        return Err(ExitValue::Code(1));
+                    }
+                }
+                Err(Error::Nix(nix::Error::Sys(Errno::UnknownErrno), s)) => {
+                    return Err(Error::Nix(nix::Error::Sys(Errno::EAGAIN), s))
+                        .conv(format!("Timeout occurred during the transfer of a message"));
+                }
+                Err(e) => {
+                    return Err(e).conv("Error attempting to receive message from Paper server")
+                }
             }
         };
 
-        return match serde_json::from_str::<R>(text.as_str()) {
+        let msg = message_resp!(msg, self);
+        return self.handle_message(&msg);
+    }
+
+    fn handle_message<R: DeserializeOwned>(&self, msg: &Message) -> Result<R, ExitValue> {
+        let msg_text = msg.message_text.as_str();
+
+        return match serde_json::from_str::<R>(msg_text) {
             Ok(r) => Ok(r),
-            Err(e) => match serde_json::from_str::<ServerErrorMessage>(text.as_str()) {
+            Err(e) => match serde_json::from_str::<ServerErrorMessage>(msg_text) {
                 Ok(message) => {
-                    eprintln!("{}", message.error);
-                    Err(1)
+                    if message.is_shutdown {
+                        Err(ExitValue::Shutdown)
+                    } else {
+                        if self.print_err && message.error.is_some() {
+                            eprintln!("{}", message.error.unwrap());
+                        }
+                        Err(ExitValue::Code(1))
+                    }
                 }
                 Err(_) => {
-                    eprintln!("Failed to parse response from server: {}", e);
-                    Err(1)
+                    if self.print_err {
+                        eprintln!("Failed to parse response from server: {}", e);
+                    }
+                    Err(ExitValue::Code(1))
                 }
             },
         };
     }
-
-    fn is_stopping(&self) -> bool {
-        return self
-            .is_stopping
-            .as_ref()
-            .map(|b| b.load(Ordering::SeqCst))
-            .unwrap_or(false);
-    }
 }
 
-impl Drop for ResponseChannel {
+impl Drop for MessageSocket {
     fn drop(&mut self) {
-        close(self.response_chan);
+        self.print_err = false;
+        let _ = close_socket(self.sock);
     }
-}
-
-fn close(msq_id: i32) {
-    let _ = unsafe { msgctl(msq_id, IPC_RMID, null_mut()) };
 }

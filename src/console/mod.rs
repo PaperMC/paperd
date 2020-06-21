@@ -14,16 +14,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 pub mod ansi;
-mod console_status;
 
 use crate::console::ansi::{AnsiCode, MessageElement, StyledMessage};
-use crate::console::console_status::{ConsoleStatusMessage, ConsoleStatusMessageResponse};
-use crate::messaging::{open_message_channel, MessageHandler, ResponseChannel};
 use crate::protocol::check_protocol;
 use crate::send::send_command;
 use crate::status::{StatusMessage, StatusMessageResponse};
-use crate::util::{get_pid, is_pid_running, ExitError};
-use crate::{messaging, util};
+use crate::util;
+use crate::util::{get_pid, get_sock, get_sock_from_file, ExitError, ExitValue};
 use clap::ArgMatches;
 use crossbeam_channel::Sender;
 use ncurses::{
@@ -32,7 +29,8 @@ use ncurses::{
     mvhline, mvwaddstr, mvwhline, mvwvline, newwin, noecho, refresh, start_color, stdscr, touchwin,
     use_default_colors, wattroff, wattron, werase, wrefresh, COLOR_BLACK, COLOR_BLUE, COLOR_GREEN,
     COLOR_MAGENTA, COLOR_PAIR, COLOR_RED, COLOR_YELLOW, ERR, KEY_BACKSPACE, KEY_DOWN, KEY_ENTER,
-    KEY_EVENT, KEY_F1, KEY_F2, KEY_LEFT, KEY_RESIZE, KEY_RIGHT, KEY_UP, WINDOW,
+    KEY_EVENT, KEY_F1, KEY_F2, KEY_LEFT, KEY_NPAGE, KEY_PPAGE, KEY_RESIZE, KEY_RIGHT, KEY_UP,
+    WINDOW,
 };
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -46,7 +44,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::sleep;
 use std::time::Duration;
 use std::vec::Vec;
-use std::{fs, str, thread};
+use std::{fs, process, str, thread};
 
 macro_rules! ctrl {
     ($letter:expr) => {
@@ -81,83 +79,60 @@ const COLOR_BRIGHT_MAGENTA: i16 = 13;
 const COLOR_BRIGHT_CYAN: i16 = 14;
 const COLOR_BRIGHT_WHITE: i16 = 15;
 
-macro_rules! prompt_line {
-    ($max_y:ident) => {
-        $max_y - 2
-    };
-}
-
-macro_rules! prompt_index {
-    ($index:ident) => {
-        ($index + 2) as i32
-    };
-}
-
 #[cfg(feature = "console")]
-pub fn console(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, pid) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn console(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let (sock, sock_file) = get_sock(sub_m)?;
+    check_protocol(&sock)?;
+
+    let (pid_file, pid) = get_pid(&sock_file)?;
 
     let stop = Arc::new(AtomicBool::new(false));
 
-    let mut chan = messaging::open_message_channel(&pid_file)?;
     {
+        // This will cause the program to quit if the server isn't ready yet, before creating
+        // the console
         let message = StatusMessage {};
-        let response_chan = chan
-            .with_stopper(&stop)
-            .send_message::<StatusMessage>(message)?
-            .expect("Failed to create response channel");
-        if let Err(_) = response_chan.receive_message::<StatusMessageResponse>() {
-            // Server is not yet ready (which will already be told to the user by the above
-            // function) so just quit before creating the console
-            return Err(1);
-        }
+        sock.send_message(&message)?;
+        sock.receive_message::<StatusMessageResponse>()?;
     }
 
-    // Open logs channel
-    let message = LogsMessage {};
-    let response_chan = chan
-        .with_stopper(&stop)
-        .send_message::<LogsMessage>(message)?
-        .expect("Failed to create response channel");
-
-    let res = Term::new(&pid_file, &response_chan, stop.clone()).run_term();
+    let res = Term::new(&sock_file, &pid_file, stop.clone()).run_term();
 
     if is_pid_running(pid) {
         let end = EndLogsListenerMessage {
-            channel: response_chan.response_chan,
+            pid: process::id() as i32,
         };
-        messaging::open_message_channel(&pid_file)?.send_message::<EndLogsListenerMessage>(end)?;
+        get_sock_from_file(&sock_file)?.send_message(&end)?;
     }
 
     return res;
 }
 
 struct Term<'a> {
+    sock_file: &'a PathBuf,
     pid_file: &'a PathBuf,
-    resp_chan: &'a ResponseChannel,
     signals: Signals,
     completions: Option<Completions>,
     stop: Arc<AtomicBool>,
 }
 
 impl<'a> Term<'a> {
-    fn new(pid_file: &'a PathBuf, resp_chan: &'a ResponseChannel, stop: Arc<AtomicBool>) -> Self {
+    fn new(sock_file: &'a PathBuf, pid_file: &'a PathBuf, stop: Arc<AtomicBool>) -> Self {
         return Term {
+            sock_file,
             pid_file,
-            resp_chan,
             signals: Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGTRAP, SIGABRT, SIGTERM]).unwrap(),
             completions: None,
             stop,
         };
     }
 
-    fn run_term(self) -> Result<(), i32> {
+    fn run_term(self) -> Result<(), ExitValue> {
         // Start ncurses
         initscr();
         if !has_colors() {
             eprintln!("Your terminal is not supported");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
 
         keypad(stdscr(), true);
@@ -180,7 +155,7 @@ impl<'a> Term<'a> {
         return self.do_term_loop();
     }
 
-    fn do_term_loop(self) -> Result<(), i32> {
+    fn do_term_loop(self) -> Result<(), ExitValue> {
         // line buffer, holds the log messages we receive from the server
         let buffer = Arc::new(Mutex::new(Vec::<StyledMessage>::new()));
 
@@ -204,7 +179,7 @@ impl<'a> Term<'a> {
         return self.input_loop(loop_stop, buffer.clone(), status.clone());
     }
 
-    fn start_stop_listener_thread(&self, stop: Arc<AtomicBool>) -> Result<(), i32> {
+    fn start_stop_listener_thread(&self, stop: Arc<AtomicBool>) -> Result<(), ExitValue> {
         let pid_text = fs::read_to_string(&self.pid_file).conv("Failed to read PID file")?;
         let pid_int = pid_text.parse::<i32>().conv("Failed to parse PID file")?;
         let pid = Pid::from_raw(pid_int);
@@ -237,19 +212,36 @@ impl<'a> Term<'a> {
         stop: Arc<AtomicBool>,
         buffer: Arc<Mutex<Vec<StyledMessage>>>,
     ) {
-        let chan_bg = self.resp_chan.clone();
+        let sock_file_bg = self.sock_file.clone();
 
         thread::spawn(move || {
-            while !stop.load(Ordering::SeqCst) {
-                let res = match chan_bg.receive_message::<LogsMessageResponse>() {
-                    Ok(res) => res,
-                    Err(_) => {
-                        stop.store(true, Ordering::SeqCst);
-                        break;
-                    }
-                };
+            let sock = match get_sock_from_file(&sock_file_bg) {
+                Ok(s) => s,
+                Err(_) => {
+                    stop.store(true, Ordering::SeqCst);
+                    return;
+                }
+            };
 
-                let mut code_hist = Vec::<AnsiCode>::new();
+            let message = LogsMessage {
+                pid: process::id() as i32,
+            };
+            if let Err(_) = sock.send_message(&message) {
+                stop.store(true, Ordering::SeqCst);
+                return;
+            }
+
+            while !stop.load(Ordering::SeqCst) {
+                let res: LogsMessageResponse =
+                    match sock.receive_loop(|| !stop.load(Ordering::SeqCst)) {
+                        Ok(res) => res,
+                        Err(_) => {
+                            stop.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    };
+
+                let mut current_code_hist = Vec::<AnsiCode>::new();
 
                 // Multi-line messages can have styles at the start and RESET at the end, which would
                 // be expected to be applied to the whole block
@@ -266,27 +258,31 @@ impl<'a> Term<'a> {
                         if let MessageElement::Code(c) = element {
                             if *c == AnsiCode::Reset {
                                 next_code_hist.clear();
-                                code_hist.clear();
+                                current_code_hist.clear();
                             } else {
                                 next_code_hist.push(*c);
                             }
                         }
                     }
 
-                    for code in &code_hist {
+                    for code in &current_code_hist {
                         msg.messages.insert(0, MessageElement::Code(*code));
                     }
                     msg.messages.push(MessageElement::Code(AnsiCode::Reset));
-                    buffer.lock().unwrap().push(msg);
 
-                    code_hist.append(&mut next_code_hist);
+                    if !msg.messages.iter().all(|m| m.is_code()) {
+                        buffer.lock().unwrap().push(msg);
+                    }
+
+                    current_code_hist.append(&mut next_code_hist);
                 }
             }
         });
     }
 
     fn start_status_bar_thread(&self, stop: Arc<AtomicBool>, status: Arc<Mutex<CurrentStatus>>) {
-        let pid_file_bg = self.pid_file.clone();
+        let sock_file_bg = self.sock_file.clone();
+
         thread::spawn(move || {
             macro_rules! handle_error {
                 ($stop:ident) => {
@@ -298,26 +294,22 @@ impl<'a> Term<'a> {
                 };
             }
 
-            while !stop.load(Ordering::SeqCst) {
-                let mut chan = match open_message_channel(&pid_file_bg) {
-                    Ok(c) => c,
-                    Err(_) => {
-                        handle_error!(stop);
-                    }
-                };
+            let sock = match get_sock_from_file(&sock_file_bg) {
+                Ok(s) => s,
+                Err(_) => {
+                    stop.store(true, Ordering::SeqCst);
+                    return;
+                }
+            };
 
+            while !stop.load(Ordering::SeqCst) {
                 let resp: ConsoleStatusMessageResponse = {
-                    let response_chan = match chan
-                        .with_stopper(&stop)
-                        .send_message(ConsoleStatusMessage {})
-                    {
-                        Ok(s) => s.expect("Failed to create response channel"),
-                        Err(_) => {
-                            handle_error!(stop);
-                        }
+                    let message = ConsoleStatusMessage {};
+                    if let Err(_) = sock.send_message(&message) {
+                        handle_error!(stop);
                     };
 
-                    match response_chan.receive_message::<ConsoleStatusMessageResponse>() {
+                    match sock.receive_message::<ConsoleStatusMessageResponse>() {
                         Ok(r) => r,
                         Err(_) => {
                             handle_error!(stop);
@@ -347,18 +339,18 @@ impl<'a> Term<'a> {
         stop: Arc<AtomicBool>,
         buffer: Arc<Mutex<Vec<StyledMessage>>>,
         status: Arc<Mutex<CurrentStatus>>,
-    ) -> Result<(), i32> {
+    ) -> Result<(), ExitValue> {
         // The server response results of the completion requests
         let (comp_res_send, comp_res_rec) = crossbeam_channel::unbounded::<Vec<String>>();
 
         // index represents the last line visible on screen
         // it's subtracted from the buffer's length to find the line
         // buffer.len() - 1 - index
-        let mut index = 0;
+        let mut index: usize = 0;
         // cursor_index represents where on the input line the cursor is
         // it's 1:1 with the input variable, which is offset by 2 from the left due to the '> ' prompt
         // So the actual cursor index is 2 + cursor_index
-        let mut cursor_index = 0;
+        let mut cursor_index: usize = 0;
 
         let mut input_history_up = Vec::<String>::new();
         let mut input_history_down = Vec::<String>::new();
@@ -430,7 +422,7 @@ impl<'a> Term<'a> {
                     }
                 }
 
-                let ch = mvgetch(prompt_line!(max_y), prompt_index!(cursor_index));
+                let ch = mvgetch(prompt_line(max_y), prompt_index(cursor_index));
                 match ch {
                     KEY_RESIZE => {
                         break; // redraw
@@ -490,8 +482,7 @@ impl<'a> Term<'a> {
                     KEY_UP => {
                         match status.lock().unwrap().mode {
                             ArrowMode::SCROLL => {
-                                let len = buffer.lock().unwrap().len() as i32;
-                                if len - index as i32 > max_y - 1 {
+                                if cur_i(index) < max_index(&buffer, max_y) {
                                     index += 1;
                                     break; // redraw
                                 }
@@ -555,7 +546,7 @@ impl<'a> Term<'a> {
                         if cursor_index >= input.len() {
                             input.pop();
                             cursor_index = input.len();
-                            mvdelch(prompt_line!(max_y), prompt_index!(cursor_index));
+                            mvdelch(prompt_line(max_y), prompt_index(cursor_index));
                         } else {
                             input.remove(cursor_index - 1);
                             cursor_index -= 1;
@@ -564,7 +555,12 @@ impl<'a> Term<'a> {
                         if input.len() == 0 {
                             self.completions = None
                         } else {
-                            request_completions(&input, &self.pid_file, &comp_res_send, &self.stop);
+                            request_completions(
+                                &input,
+                                &self.sock_file,
+                                &comp_res_send,
+                                &self.stop,
+                            );
                         }
 
                         refresh();
@@ -580,7 +576,8 @@ impl<'a> Term<'a> {
                         // Send command last so the prompt isn't waiting to redraw
                         // drain down history into up
                         if !s.is_empty() {
-                            send_command(&self.pid_file, s.as_str())?;
+                            let sock = get_sock_from_file(&self.sock_file)?;
+                            send_command(&sock, s.as_str())?;
                             while !input_history_down.is_empty() {
                                 input_history_up.push(input_history_down.pop().unwrap());
                             }
@@ -595,6 +592,24 @@ impl<'a> Term<'a> {
                         // follow
                         index = 0;
                         break; // redraw
+                    }
+                    KEY_PPAGE => {
+                        if cur_i(index) < max_index(&buffer, max_y) {
+                            index += (max_y / 2) as usize;
+                            index = min(index, max_index(&buffer, max_y) as usize);
+                            break; // redraw
+                        }
+                    }
+                    KEY_NPAGE => {
+                        if index > 0 {
+                            let delta = (max_y / 2) as usize;
+                            if delta > index {
+                                index = 0;
+                            } else {
+                                index -= delta;
+                            }
+                            break; // redraw
+                        }
                     }
                     ch => {
                         let rs_ch = match std::char::from_u32(ch as u32) {
@@ -621,7 +636,7 @@ impl<'a> Term<'a> {
                             }
                         }
 
-                        request_completions(&input, &self.pid_file, &comp_res_send, &self.stop);
+                        request_completions(&input, &self.sock_file, &comp_res_send, &self.stop);
                     }
                 }
             }
@@ -665,7 +680,7 @@ impl Completions {
         let width: i32 = 35;
         let height: i32 = (lines + 2) as i32;
 
-        let new_win = newwin(height, width, prompt_line!(max_y) - height, 2);
+        let new_win = newwin(height, width, prompt_line(max_y) - height, 2);
         return Some(Completions {
             window: new_win,
             suggestions,
@@ -733,8 +748,8 @@ impl Completions {
                 return match self.index {
                     Some(idx) => {
                         let result = self.suggestions[idx].clone();
-                        (Some(result), Completions::NO_ACTION)
-                    },
+                        (Some(result), Completions::CLOSE_WINDOW)
+                    }
                     None => (None, Completions::CLOSE_WINDOW | Completions::SEND_KEY),
                 }
             }
@@ -778,7 +793,7 @@ impl Drop for Completions {
 
 fn request_completions(
     input: &Vec<char>,
-    pid_file: &PathBuf,
+    sock_file: &PathBuf,
     chan: &Sender<Vec<String>>,
     stop: &Arc<AtomicBool>,
 ) {
@@ -787,31 +802,27 @@ fn request_completions(
         return;
     }
 
-    let pid_file_bg = pid_file.clone();
+    let sock_file_bg = sock_file.clone();
     let chan_bg = chan.clone();
     let stop_bg = stop.clone();
     thread::spawn(move || {
-        let mut channel = match open_message_channel(&pid_file_bg) {
-            Ok(channel) => channel,
+        let sock = match get_sock_from_file(&sock_file_bg) {
+            Ok(sock) => sock,
             Err(_) => return,
         };
 
         let message = TabCompleteMessage {
             command: command_text,
         };
-        let response = match channel
-            .with_stopper(&stop_bg)
-            .send_message::<TabCompleteMessage>(message)
-        {
-            Ok(resp) => resp.expect("Failed to create response channel"),
-            Err(_) => return,
-        };
+        if let Err(_) = sock.send_message(&message) {
+            return;
+        }
 
         if stop_bg.load(Ordering::SeqCst) {
             return;
         }
 
-        let received = match response.receive_message::<TabCompleteMessageResponse>() {
+        let received = match sock.receive_message::<TabCompleteMessageResponse>() {
             Ok(resp) => resp,
             Err(_) => return,
         };
@@ -845,18 +856,40 @@ fn redraw_term(
 
 fn prompt(cur_input: &Vec<char>, max_y: i32, max_x: i32) {
     attron(COLOR_PAIR(PROMPT_PAIR));
-    mvaddstr(prompt_line!(max_y), 0, "> ");
+    mvaddstr(prompt_line(max_y), 0, "> ");
     attroff(COLOR_PAIR(PROMPT_PAIR));
 
     if !cur_input.is_empty() {
         let s: String = cur_input.iter().collect();
         // 2 because we're adding after the '> ' prompt
-        mvaddstr(prompt_line!(max_y), 2, s.as_str());
+        mvaddstr(prompt_line(max_y), 2, s.as_str());
         let index = (2 + s.len()) as i32;
-        mvhline(prompt_line!(max_y), index, ' ' as chtype, max_x - index); // clear rest of row
+        mvhline(prompt_line(max_y), index, ' ' as chtype, max_x - index); // clear rest of row
     } else {
-        mvhline(prompt_line!(max_y), 2, ' ' as chtype, max_x - 2); // clear whole row
+        mvhline(prompt_line(max_y), 2, ' ' as chtype, max_x - 2); // clear whole row
     }
+}
+
+const PROMPT_OFFSET: i32 = 2;
+
+fn prompt_line(max_y: i32) -> i32 {
+    return max_y - PROMPT_OFFSET;
+}
+
+fn prompt_index(index: usize) -> i32 {
+    return (index as i32) + PROMPT_OFFSET;
+}
+
+fn buffer_len(buffer: &Arc<Mutex<Vec<StyledMessage>>>) -> i32 {
+    return buffer.lock().unwrap().len() as i32;
+}
+
+fn max_index(buffer: &Arc<Mutex<Vec<StyledMessage>>>, max_y: i32) -> i32 {
+    return buffer_len(buffer) - max_y + 1;
+}
+
+fn cur_i(index: usize) -> i32 {
+    return index as i32;
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -951,16 +984,9 @@ impl CurrentStatus {
 
 // LogsMessage
 #[derive(Serialize)]
-struct LogsMessage {}
-
-impl MessageHandler for LogsMessage {
-    fn type_id() -> i16 {
-        return 6;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
+pub struct LogsMessage {
+    #[serde(rename = "pid")]
+    pid: i32,
 }
 
 #[derive(Deserialize)]
@@ -971,40 +997,41 @@ struct LogsMessageResponse {
 
 // EndLogsListenerMessage
 #[derive(Serialize)]
-struct EndLogsListenerMessage {
-    #[serde(rename = "channel")]
-    channel: i32,
-}
-
-impl MessageHandler for EndLogsListenerMessage {
-    fn type_id() -> i16 {
-        return 7;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
+pub struct EndLogsListenerMessage {
+    #[serde(rename = "pid")]
+    pid: i32,
 }
 
 // AutocompleteMessage
 #[derive(Serialize)]
-struct TabCompleteMessage {
+pub struct TabCompleteMessage {
     #[serde(rename = "command")]
     command: String,
-}
-
-impl MessageHandler for TabCompleteMessage {
-    fn type_id() -> i16 {
-        return 9;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
 }
 
 #[derive(Deserialize)]
 struct TabCompleteMessageResponse {
     #[serde(rename = "suggestions")]
     suggestions: Vec<String>,
+}
+
+fn is_pid_running(pid: Pid) -> bool {
+    return kill(pid, None).is_ok();
+}
+
+// Request
+#[derive(Serialize)]
+pub struct ConsoleStatusMessage {}
+
+// Response
+#[derive(Deserialize)]
+struct ConsoleStatusMessageResponse {
+    #[serde(rename = "serverName")]
+    server_name: String,
+    #[serde(rename = "players")]
+    players: i32,
+    #[serde(rename = "maxPlayers")]
+    max_players: i32,
+    #[serde(rename = "tps")]
+    tps: f64,
 }

@@ -33,14 +33,14 @@ pub fn gen_completions(shell: &str) {
 }
 
 fn handle_cmd_line<'a, 'b>(start_after: &'b str, run_after: &'b str) -> App<'a, 'b> {
-    let pid_arg = Arg::<'a, 'b>::with_name("PID")
+    let sock_arg = Arg::<'a, 'b>::with_name("SOCK")
         .help(
-            "Custom PID file to send commands to a running server. If not set, the \
-             PAPERMC_PID environment variable will be checked. If neither are set, the default \
-             value is ./paper.pid.",
+            "Custom socket file to send commands to a running server. If not set, the \
+             PAPERMC_SOCK environment variable will be checked. If neither are set, the default \
+             value is ./paper.sock.",
         )
-        .short("p")
-        .long("pid")
+        .short("s")
+        .long("sock")
         .takes_value(true);
 
     let license_text = r"ISSUES:
@@ -64,14 +64,14 @@ LICENSE:
         .subcommand(
             SubCommand::with_name("status")
                 .about("Get the status of the currently running server.")
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .display_order(1)
                 .after_help(license_text),
         )
         .subcommand(
             SubCommand::with_name("send")
                 .about("Send a command to the running MC server.")
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .arg(tail_arg(
                     "Tail the server log after sending the command to the \
                      server, useful for viewing the response. Press C-c to quit.",
@@ -88,11 +88,11 @@ LICENSE:
                 )
                 .display_order(1),
         )
-        .console(&pid_arg)
+        .console(&sock_arg)
         .subcommand(
             SubCommand::with_name("log")
                 .about("Print recent log messages from the running MC server.")
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .arg(
                     Arg::with_name("LINES")
                         .help("The number of log messages to print.")
@@ -109,7 +109,7 @@ LICENSE:
         .subcommand(
             SubCommand::with_name("timings")
                 .about("If timings is enabled, generate a report and return the URL.")
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .display_order(1),
         )
         .subcommand(
@@ -144,7 +144,7 @@ LICENSE:
                     "Stop the MC server gracefully. This is functionally \
                      equivalent to sending the 'stop' command to the server.",
                 )
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .arg(
                     Arg::with_name("FORCE")
                         .help(
@@ -180,7 +180,7 @@ LICENSE:
                      original jar. The paperd instance will not be changed if it has been updated, \
                      however, as it does not restart.",
                 )
-                .arg(&pid_arg)
+                .arg(&sock_arg)
                 .arg(tail_arg(
                     "Tail the server log after asking the server to restart. Press \
                      C-c to quit.",

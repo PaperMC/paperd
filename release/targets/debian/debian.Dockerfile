@@ -1,15 +1,28 @@
-FROM rust:1.42.0-slim-buster
+ARG version
+FROM buildpack-deps:$version
 
 # Base utilities
 RUN mkdir -p /usr/share/man/man1 \
     && apt-get update \
     && apt-get install --no-install-recommends -y \
+        apt-transport-https \
         apt-utils \
+        ca-certificates \
         gnupg \
         libncurses-dev \
+        libncursesw5-dev \
         software-properties-common \
         wget \
         xz-utils
+
+# Install Rust
+ARG rustVersion
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUST_VERSION=$rustVersion
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path \
+    && chmod -R a+w $RUSTUP_HOME $CARGO_HOME
 
 # Install AdoptOpenJDK 8
 RUN wget -qO - https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public | apt-key add - \
@@ -19,4 +32,4 @@ RUN wget -qO - https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public | a
 
 WORKDIR /usr/src/paperd
 
-CMD ["./build_release.sh", "__build"]
+CMD ["./release/targets/build_release.sh"]

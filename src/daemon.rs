@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::util::ExitValue;
 use nix::sys::stat::{umask, Mode};
 use nix::unistd::{close, fork, setsid, ForkResult};
 use std::io::{stderr, stdin, stdout};
@@ -26,7 +27,7 @@ pub enum Status {
 /// Forks the currently running process and returns either an error int (to exit with) or a `Status`
 /// telling the caller whether to exit or to continue. The parent process should quit, with the
 /// child process continuing, now as a separate daemon process.
-pub fn run_daemon() -> Result<Status, i32> {
+pub fn run_daemon() -> Result<Status, ExitValue> {
     // Create a new pid and execute from there
     match fork() {
         Ok(ForkResult::Parent { child }) => {
@@ -36,7 +37,7 @@ pub fn run_daemon() -> Result<Status, i32> {
         Ok(ForkResult::Child) => {}
         Err(_) => {
             eprintln!("Fork failed");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     }
 
@@ -48,7 +49,7 @@ pub fn run_daemon() -> Result<Status, i32> {
         Ok(_) => {}
         Err(_) => {
             eprintln!("Failed to start a new session");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 

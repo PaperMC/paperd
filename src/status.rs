@@ -13,25 +13,21 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::get_pid;
-use crate::{messaging, util};
+use crate::util;
+use crate::util::{get_sock, ExitValue};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
-pub fn status(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, _) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn status(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let (sock, _) = get_sock(sub_m)?;
+    check_protocol(&sock)?;
 
     let message = StatusMessage {};
 
-    let chan = messaging::open_message_channel(&pid_file)?;
-    let response_chan = chan
-        .send_message::<StatusMessage>(message)?
-        .expect("Failed to create response channel");
+    sock.send_message(&message)?;
 
-    let res = response_chan.receive_message::<StatusMessageResponse>()?;
+    let res = sock.receive_message::<StatusMessageResponse>()?;
 
     output_status(&res);
 
@@ -115,17 +111,7 @@ fn format_time(time: &str) -> String {
 
 // Request
 #[derive(Serialize)]
-pub(crate) struct StatusMessage {}
-
-impl MessageHandler for StatusMessage {
-    fn type_id() -> i16 {
-        return 3;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
-}
+pub struct StatusMessage {}
 
 // Response
 #[derive(Deserialize)]
@@ -149,7 +135,7 @@ pub(crate) struct StatusMessageResponse {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct WorldStatus {
+struct WorldStatus {
     #[serde(rename = "name")]
     name: String,
     #[serde(rename = "dimension")]
@@ -165,7 +151,7 @@ pub(crate) struct WorldStatus {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct TpsStatus {
+struct TpsStatus {
     #[serde(rename = "oneMin")]
     one_min: f64,
     #[serde(rename = "fiveMin")]
@@ -175,7 +161,7 @@ pub(crate) struct TpsStatus {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct MemoryStatus {
+struct MemoryStatus {
     #[serde(rename = "usedMemory")]
     used_memory: String,
     #[serde(rename = "totalMemory")]

@@ -15,26 +15,21 @@
 
 #[cfg(feature = "console")]
 use crate::console::ansi;
-use crate::messaging;
-use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::get_pid;
+use crate::util::{get_sock, ExitValue};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 
-pub fn timings(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, _) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn timings(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let (sock, _) = get_sock(sub_m)?;
+    check_protocol(&sock)?;
 
     let message = TimingsMessage {};
 
-    let chan = messaging::open_message_channel(&pid_file)?;
-    let response_chan = chan
-        .send_message::<TimingsMessage>(message)?
-        .expect("Failed to create response channel");
+    sock.send_message(&message)?;
 
     loop {
-        let res = response_chan.receive_message::<TimingsMessageResponse>()?;
+        let res = sock.receive_message::<TimingsMessageResponse>()?;
         if res.done {
             break;
         }
@@ -73,17 +68,7 @@ fn mc_colors(s: &str) -> String {
 
 // Request
 #[derive(Serialize)]
-struct TimingsMessage {}
-
-impl MessageHandler for TimingsMessage {
-    fn type_id() -> i16 {
-        return 5;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
-}
+pub struct TimingsMessage {}
 
 // Response
 #[derive(Serialize, Deserialize)]

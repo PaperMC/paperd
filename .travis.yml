@@ -9,7 +9,7 @@ env:
 matrix:
   include:
     - env: CMD="./build_release.sh"
-      services: docker
+      services: release
   allow_failures:
     - rust: beta
     - rust: nightly

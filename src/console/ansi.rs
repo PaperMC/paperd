@@ -96,8 +96,8 @@ impl AnsiCode {
             if *code == AnsiCode::Warn || *code == AnsiCode::Error {
                 continue;
             }
-            if let (Some((pair, fg, bg)), _) = code.attr_pair() {
-                init_pair(pair, fg, bg);
+            if let (Some(pair), _) = code.attr_pair() {
+                init_pair(pair.id, pair.foreground, pair.background);
             }
         }
     }
@@ -131,32 +131,38 @@ impl AnsiCode {
         };
     }
 
-    fn attr_pair(&self) -> (Option<(i16, i16, i16)>, Option<attr_t>) {
+    fn attr_pair(&self) -> (Option<PairValues>, Option<attr_t>) {
         return match *self {
-            AnsiCode::Black => (Some((BLACK_PAIR, COLOR_BLACK, COLOR_WHITE)), None),
-            AnsiCode::DarkBlue => (Some((DARK_BLUE_PAIR, COLOR_BLUE, -1)), None),
-            AnsiCode::DarkGreen => (Some((DARK_GREEN_PAIR, COLOR_GREEN, -1)), None),
-            AnsiCode::DarkAqua => (Some((DARK_AQUA_PAIR, COLOR_CYAN, -1)), None),
-            AnsiCode::DarkRed => (Some((DARK_RED_PAIR, COLOR_RED, -1)), None),
-            AnsiCode::DarkPurple => (Some((DARK_PURPLE_PAIR, COLOR_MAGENTA, -1)), None),
-            AnsiCode::Gold => (Some((GOLD_PAIR, COLOR_YELLOW, -1)), None),
-            AnsiCode::Gray => (Some((GRAY_PAIR, COLOR_WHITE, COLOR_BLACK)), None),
-            AnsiCode::DarkGray => (Some((DARK_GRAY_PAIR, COLOR_DARK_GRAY, COLOR_WHITE)), None),
-            AnsiCode::Blue => (Some((BLUE_PAIR, COLOR_BRIGHT_BLUE, -1)), None),
-            AnsiCode::Green => (Some((GREEN_PAIR, COLOR_BRIGHT_GREEN, -1)), None),
-            AnsiCode::Aqua => (Some((AQUA_PAIR, COLOR_BRIGHT_CYAN, -1)), None),
-            AnsiCode::Red => (Some((RED_PAIR, COLOR_BRIGHT_RED, -1)), None),
-            AnsiCode::LightPurple => (Some((LIGHT_PURPLE_PAIR, COLOR_BRIGHT_MAGENTA, -1)), None),
-            AnsiCode::Yellow => (Some((YELLOW_PAIR, COLOR_BRIGHT_YELLOW, -1)), None),
-            AnsiCode::White => (Some((WHITE_PAIR, COLOR_BRIGHT_WHITE, COLOR_BLACK)), None),
+            AnsiCode::Black => (Some(pair(BLACK_PAIR, COLOR_BLACK, COLOR_WHITE)), None),
+            AnsiCode::DarkBlue => (Some(pair_fg(DARK_BLUE_PAIR, COLOR_BLUE)), None),
+            AnsiCode::DarkGreen => (Some(pair_fg(DARK_GREEN_PAIR, COLOR_GREEN)), None),
+            AnsiCode::DarkAqua => (Some(pair_fg(DARK_AQUA_PAIR, COLOR_CYAN)), None),
+            AnsiCode::DarkRed => (Some(pair_fg(DARK_RED_PAIR, COLOR_RED)), None),
+            AnsiCode::DarkPurple => (Some(pair_fg(DARK_PURPLE_PAIR, COLOR_MAGENTA)), None),
+            AnsiCode::Gold => (Some(pair_fg(GOLD_PAIR, COLOR_YELLOW)), None),
+            AnsiCode::Gray => (Some(pair(GRAY_PAIR, COLOR_WHITE, COLOR_BLACK)), None),
+            AnsiCode::DarkGray => (
+                Some(pair(DARK_GRAY_PAIR, COLOR_DARK_GRAY, COLOR_WHITE)),
+                None,
+            ),
+            AnsiCode::Blue => (Some(pair_fg(BLUE_PAIR, COLOR_BRIGHT_BLUE)), None),
+            AnsiCode::Green => (Some(pair_fg(GREEN_PAIR, COLOR_BRIGHT_GREEN)), None),
+            AnsiCode::Aqua => (Some(pair_fg(AQUA_PAIR, COLOR_BRIGHT_CYAN)), None),
+            AnsiCode::Red => (Some(pair_fg(RED_PAIR, COLOR_BRIGHT_RED)), None),
+            AnsiCode::LightPurple => (Some(pair_fg(LIGHT_PURPLE_PAIR, COLOR_BRIGHT_MAGENTA)), None),
+            AnsiCode::Yellow => (Some(pair_fg(YELLOW_PAIR, COLOR_BRIGHT_YELLOW)), None),
+            AnsiCode::White => (
+                Some(pair(WHITE_PAIR, COLOR_BRIGHT_WHITE, COLOR_BLACK)),
+                None,
+            ),
             AnsiCode::Obfuscated => (None, Some(A_BLINK())),
             AnsiCode::Bold => (None, Some(A_BOLD())),
             AnsiCode::Strikethrough => (None, None), // ncurses doesn't support strikethrough, so this does nothing
             AnsiCode::Underline => (None, Some(A_UNDERLINE())),
             AnsiCode::Italic => (None, Some(A_ITALIC())),
             AnsiCode::Reset => (None, None), // this is a special case, will cause all other effects to undo
-            AnsiCode::Warn => (Some((YELLOW_PAIR, COLOR_YELLOW, -1)), Some(A_BOLD())),
-            AnsiCode::Error => (Some((RED_PAIR, COLOR_RED, -1)), Some(A_BOLD())),
+            AnsiCode::Warn => (Some(pair(YELLOW_PAIR, COLOR_YELLOW, -1)), Some(A_BOLD())),
+            AnsiCode::Error => (Some(pair(RED_PAIR, COLOR_RED, -1)), Some(A_BOLD())),
         };
     }
 
@@ -240,9 +246,40 @@ impl AnsiCode {
     }
 }
 
+struct PairValues {
+    id: i16,
+    foreground: i16,
+    background: i16,
+}
+
+fn pair(id: i16, foreground: i16, background: i16) -> PairValues {
+    return PairValues {
+        id,
+        foreground,
+        background,
+    };
+}
+
+fn pair_fg(id: i16, foreground: i16) -> PairValues {
+    return PairValues {
+        id,
+        foreground,
+        background: -1,
+    };
+}
+
 pub enum MessageElement {
     Text(String),
     Code(AnsiCode),
+}
+
+impl MessageElement {
+    pub fn is_code(&self) -> bool {
+        return match self {
+            MessageElement::Code(_) => true,
+            _ => false,
+        };
+    }
 }
 
 pub struct StyledMessage {

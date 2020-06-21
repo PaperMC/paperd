@@ -14,26 +14,23 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::log::{find_log_file, tail};
-use crate::messaging;
-use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::get_pid;
+use crate::util::{get_sock, ExitValue};
 use clap::ArgMatches;
 use serde::Serialize;
 
-pub fn restart(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, _) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn restart(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let (sock, sock_file) = get_sock(sub_m)?;
+    check_protocol(&sock)?;
 
     let message = RestartMessage {};
 
     println!("Sending restart request...");
 
-    let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<RestartMessage>(message)?;
+    sock.send_message(&message)?;
 
     if sub_m.is_present("TAIL") {
-        let log_file = find_log_file(&pid_file)?;
+        let log_file = find_log_file(&sock_file)?;
         return tail(log_file, 0, true);
     }
 
@@ -42,14 +39,4 @@ pub fn restart(sub_m: &ArgMatches) -> Result<(), i32> {
 
 // Request
 #[derive(Serialize)]
-struct RestartMessage {}
-
-impl MessageHandler for RestartMessage {
-    fn type_id() -> i16 {
-        return 2;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
-}
+pub struct RestartMessage {}

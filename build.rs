@@ -40,7 +40,9 @@ fn main() {
     };
     let lib_file = format!("{}/{}.{}", out_dir, lib_file_name, extension);
 
-    strip(lib_file.as_str(), is_mac);
+    if is_release {
+        strip(lib_file.as_str(), is_mac);
+    }
     compress(lib_file.as_str());
 
     println!("cargo:rustc-env=PAPERD_JNI_LIB={}.gz", lib_file);

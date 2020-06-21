@@ -13,10 +13,8 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::messaging;
-use crate::messaging::MessageHandler;
 use crate::protocol::check_protocol;
-use crate::util::get_pid;
+use crate::util::{find_sock_file, get_pid, get_sock_from_file, ExitValue};
 use clap::ArgMatches;
 use nix::errno::Errno::ESRCH;
 use nix::sys::signal::{kill, SIGKILL};
@@ -29,21 +27,23 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, io};
 
-pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, pid) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn stop(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let sock_file = find_sock_file(sub_m)?;
+    let (pid_file, pid) = get_pid(&sock_file)?;
 
     if sub_m.is_present("KILL") {
-        force_kill(pid_file, pid);
+        force_kill(&sock_file, &pid_file, pid);
         println!("Server killed");
         return Ok(());
     }
 
+    let sock = get_sock_from_file(&sock_file)?;
+    check_protocol(&sock)?;
+
     let message = StopMessage {};
 
     println!("Sending stop command to the server..");
-    let chan = messaging::open_message_channel(&pid_file)?;
-    chan.send_message::<StopMessage>(message)?;
+    sock.send_message(&message)?;
 
     print!("Waiting for server to exit.");
     let _ = io::stdout().flush();
@@ -59,46 +59,32 @@ pub fn stop(sub_m: &ArgMatches) -> Result<(), i32> {
     println!();
 
     if let Err(Error::Sys(e)) = kill(pid, None) {
-        if e == ESRCH {
+        return if e == ESRCH {
             println!("Server exited successfully");
-            return Ok(());
+            Ok(())
         } else {
             println!("Unknown error occurred (stop): {}", e);
-            return Err(1);
-        }
+            Err(ExitValue::Code(1))
+        };
     }
 
     if !sub_m.is_present("FORCE") {
         println!("Server failed to exit cleanly");
-        return Err(1);
+        return Err(ExitValue::Code(1));
     }
 
     println!("Server failed to exit cleanly, killing now");
-    force_kill(pid_file, pid);
+    force_kill(&sock_file, &pid_file, pid);
     println!("Server killed");
 
     return Ok(());
 }
 
-fn force_kill<P: AsRef<Path>>(pid_file: P, pid: Pid) {
+fn force_kill<P: AsRef<Path>>(sock_file: P, pid_file: P, pid: Pid) {
     let _ = kill(pid, SIGKILL);
-    // The server won't have had a chance to close this themselves
-    // The Drop impl on the message channel will close it
-    if let Ok(m) = messaging::open_message_channel(&pid_file) {
-        m.close();
-    }
+    let _ = fs::remove_file(&sock_file);
     let _ = fs::remove_file(&pid_file);
 }
 
 #[derive(Serialize)]
-struct StopMessage {}
-
-impl MessageHandler for StopMessage {
-    fn type_id() -> i16 {
-        return 1;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
-}
+pub struct StopMessage {}

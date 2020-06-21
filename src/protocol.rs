@@ -13,18 +13,17 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::messaging;
-use crate::messaging::MessageHandler;
-use crate::util::ExitError;
+use crate::messaging::MessageSocket;
+use crate::util::{ExitError, ExitValue};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use zip::ZipArchive;
 
-static PROTOCOL_VERSION: i32 = 1;
+const PROTOCOL_VERSION: i64 = 1;
 
-pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
+pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), ExitValue> {
     let jar_path = path.as_ref();
 
     let jar_file = fs::File::open(jar_path).conv("Failed to open jar file")?;
@@ -36,7 +35,7 @@ pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
                 jar_path.to_string_lossy(),
                 e
             );
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -49,7 +48,7 @@ pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
                  it is not compatible with paperd.",
                 jar_path.to_string_lossy()
             );
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -60,10 +59,10 @@ pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
             jar_path.to_string_lossy(),
             e
         );
-        return Err(1);
+        return Err(ExitValue::Code(1));
     }
 
-    return match buffer.trim().parse::<i32>() {
+    return match buffer.trim().parse::<i64>() {
         Ok(protocol) => {
             if protocol != PROTOCOL_VERSION {
                 eprintln!(
@@ -74,7 +73,7 @@ pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
                     PROTOCOL_VERSION,
                     protocol
                 );
-                Err(1)
+                Err(ExitValue::Code(1))
             } else {
                 Ok(())
             }
@@ -85,18 +84,16 @@ pub fn check_jar_protocol<P: AsRef<Path>>(path: P) -> Result<(), i32> {
                 jar_path.to_string_lossy(),
                 e
             );
-            Err(1)
+            Err(ExitValue::Code(1))
         }
     };
 }
 
-pub fn check_protocol<P: AsRef<Path>>(pid: P) -> Result<(), i32> {
-    let chan = messaging::open_message_channel(pid)?;
-    let response_chan = chan
-        .send_message(ProtocolVersionMessage {})?
-        .expect("Failed to create response channel");
+pub fn check_protocol(sock: &MessageSocket) -> Result<(), ExitValue> {
+    let message = ProtocolVersionMessage {};
+    sock.send_message(&message)?;
 
-    let res = response_chan.receive_message::<ProtocolVersionMessageResponse>()?;
+    let res = sock.receive_message::<ProtocolVersionMessageResponse>()?;
 
     if res.protocol_version != PROTOCOL_VERSION {
         eprintln!(
@@ -105,7 +102,7 @@ pub fn check_protocol<P: AsRef<Path>>(pid: P) -> Result<(), i32> {
              of paperd compatible with this build of Paper.",
             PROTOCOL_VERSION, res.protocol_version
         );
-        return Err(1);
+        return Err(ExitValue::Code(1));
     }
 
     return Ok(());
@@ -113,21 +110,11 @@ pub fn check_protocol<P: AsRef<Path>>(pid: P) -> Result<(), i32> {
 
 // Request
 #[derive(Serialize)]
-struct ProtocolVersionMessage {}
-
-impl MessageHandler for ProtocolVersionMessage {
-    fn type_id() -> i16 {
-        return 0;
-    }
-
-    fn expect_response() -> bool {
-        return true;
-    }
-}
+pub struct ProtocolVersionMessage {}
 
 // Response
 #[derive(Serialize, Deserialize)]
 struct ProtocolVersionMessageResponse {
     #[serde(rename = "protocolVersion")]
-    protocol_version: i32,
+    protocol_version: i64,
 }

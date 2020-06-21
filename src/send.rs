@@ -14,60 +14,46 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::log::{find_log_file, tail};
-use crate::messaging;
-use crate::messaging::MessageHandler;
+use crate::messaging::MessageSocket;
 use crate::protocol::check_protocol;
-use crate::util::get_pid;
+use crate::util::{get_sock, ExitValue};
 use clap::ArgMatches;
 use serde::Serialize;
-use std::path::Path;
 
-pub fn send(sub_m: &ArgMatches) -> Result<(), i32> {
-    let (pid_file, _) = get_pid(sub_m)?;
-    check_protocol(&pid_file)?;
+pub fn send(sub_m: &ArgMatches) -> Result<(), ExitValue> {
+    let (sock, sock_file) = get_sock(sub_m)?;
+    check_protocol(&sock)?;
 
     let command = match sub_m.value_of("COMMAND") {
         Some(s) => s,
         None => {
             eprintln!("No command given.");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
-    send_command(&pid_file, command)?;
+    send_command(&sock, command)?;
 
     if sub_m.is_present("TAIL") {
-        let log_file = find_log_file(&pid_file)?;
+        let log_file = find_log_file(&sock_file)?;
         return tail(log_file, 0, true);
     }
 
     return Ok(());
 }
 
-pub fn send_command<P: AsRef<Path>>(pid_file: P, cmd: &str) -> Result<(), i32> {
+pub fn send_command(sock: &MessageSocket, cmd: &str) -> Result<(), ExitValue> {
     let message = SendCommandMessage {
         message: cmd.to_string(),
     };
 
-    let chan = messaging::open_message_channel(pid_file.as_ref())?;
-    return match chan.send_message::<SendCommandMessage>(message) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    };
+    sock.send_message(&message)?;
+
+    return Ok(());
 }
 
 #[derive(Serialize)]
-struct SendCommandMessage {
+pub struct SendCommandMessage {
     #[serde(rename = "message")]
     message: String,
-}
-
-impl MessageHandler for SendCommandMessage {
-    fn type_id() -> i16 {
-        return 4;
-    }
-
-    fn expect_response() -> bool {
-        return false;
-    }
 }

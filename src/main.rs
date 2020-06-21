@@ -19,7 +19,6 @@ extern crate crossbeam_channel;
 #[cfg(feature = "console")]
 extern crate ncurses;
 extern crate nix;
-extern crate rand;
 extern crate serde;
 extern crate serde_json;
 extern crate shellexpand;
@@ -32,6 +31,7 @@ mod cmd;
 mod console;
 mod daemon;
 mod log;
+mod messages;
 mod messaging;
 mod protocol;
 mod restart;
@@ -51,6 +51,7 @@ use crate::send::send;
 use crate::status::status;
 use crate::stop::stop;
 use crate::timings::timings;
+use crate::util::ExitValue;
 use std::process::exit;
 
 fn main() {
@@ -60,7 +61,7 @@ fn main() {
 fn run() -> i32 {
     let matches = cmd::get_cmd_line_matches();
 
-    let ret = match matches.subcommand() {
+    let ret: Result<(), ExitValue> = match matches.subcommand() {
         ("status", Some(sub_m)) => status(sub_m),
         ("send", Some(sub_m)) => send(sub_m),
         ("log", Some(sub_m)) => log(sub_m),
@@ -79,12 +80,13 @@ fn run() -> i32 {
         _ => {
             // This shouldn't happen, clap will error if no command is provided
             eprint!("Unknown command");
-            Err(1)
+            Err(ExitValue::Code(1))
         }
     };
 
     return match ret {
         Ok(()) => 0,
-        Err(exit) => exit,
+        Err(ExitValue::Code(c)) => exit(c),
+        Err(ExitValue::Shutdown) => exit(0),
     };
 }

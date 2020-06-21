@@ -13,80 +13,123 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#![no_std]
-
 extern crate alloc;
 extern crate jni;
 extern crate nix;
+extern crate paperd_lib;
 
-#[macro_use]
-mod util;
-
-use crate::util::{get_path_string, throw};
-use core::ffi::c_void;
-use core::mem::size_of;
-use core::ptr::null_mut;
-use jni::objects::JValue::{Byte, Int, Long, Object, Short};
-use jni::objects::{JClass, JObject};
-use jni::sys::{jboolean, jbyte, jint, jlong, jobject, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JClass, JObject, JString, JValue};
+use jni::sys::{jint, jobject};
 use jni::JNIEnv;
 use nix::errno::Errno;
-use nix::libc::{c_char, ftok};
-use nix::sys::signal::kill;
-use nix::unistd::Pid;
-use nix::Error::Sys;
-use paperd_lib::libc::{msgctl, msgget, msgrcv, msgsnd, IPC_CREAT, IPC_RMID};
-use paperd_lib::{Data, Message, MESSAGE_TYPE};
+use paperd_lib::{accept_connection, bind_socket, Error};
 
-// These macros allow getting around the really dumb limitation of only allowing literals (not even
-// static const strings and integers) in the concat! macro
-macro_rules! data_class {
-    () => {
-        "com/destroystokyo/paper/daemon/Data"
+use paperd_lib::{
+    close_socket, create_socket, receive_message, send_message, Message, MessageHeader,
+};
+
+use crate::util::{
+    get_path_string, throw, throw_timeout, throw_with_cause, JAVA_STRING_TYPE, NPE_CLASS,
+};
+
+#[macro_use]
+mod macros;
+mod util;
+
+const BUFFER_CLASS: &str = "com/destroystokyo/paper/daemon/PaperDaemonMessageBuffer";
+const BUFFER_CONST: &str = "(JLjava/lang/String;)V";
+
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_createSocket(
+    env: JNIEnv,
+    _: JClass,
+    sock_file: JObject,
+) -> jint {
+    let sock_file_path = match get_path_string(&env, sock_file) {
+        Ok(str) => str,
+        _ => {
+            const MESSAGE: &'static str = "Failed to get absolute path to PID file";
+            match env.exception_occurred() {
+                Ok(thrown) => {
+                    if thrown.is_null() {
+                        throw(&env, MESSAGE);
+                    }
+                    let _ = env.exception_clear();
+                    throw_with_cause(&env, MESSAGE, &thrown);
+                }
+                Err(_) => {
+                    throw(&env, MESSAGE);
+                }
+            }
+            return -1;
+        }
     };
+
+    let sock = handle_syscall!(env, create_socket(), -1);
+    handle_syscall!(env, bind_socket(sock, sock_file_path.as_str()), -1);
+
+    return sock;
 }
 
-macro_rules! message_class {
-    () => {
-        "com/destroystokyo/paper/daemon/MsgBuf"
-    };
-}
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_acceptConnection(
+    env: JNIEnv,
+    _: JClass,
+    sock: jint,
+) -> jint {
+    let client_sock = handle_syscall!(env, accept_connection(sock), 0);
 
-macro_rules! message_field_name {
-    () => {
-        "com.destroystokyo.paper.daemon.Data.message"
-    };
-}
-
-macro_rules! message_length {
-    () => {
-        100
+    return if let Some(value) = client_sock {
+        value
+    } else {
+        throw_timeout(&env);
+        0
     };
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_createQueue(
+pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_receiveMessage(
     env: JNIEnv,
     _: JClass,
-    pid_file: JObject,
-) -> jint {
-    let mut file_path = match get_path_string(&env, pid_file) {
-        Ok(str) => str,
-        _ => {
-            throw(&env, "Failed to get absolute path to PID file");
-            return -1;
+    client_sock: jint,
+) -> jobject {
+    let message = match receive_message(client_sock) {
+        Ok(opt) => match opt {
+            Some(m) => m,
+            None => return jnull!(),
+        },
+        Err(Error::Nix(nix::Error::Sys(Errno::EAGAIN), _)) => {
+            // timeout
+            throw_timeout(&env);
+            return jnull!();
+        }
+        Err(e) => {
+            let error_msg = format!("Error attempting system call: {}", e);
+            throw(&env, error_msg.as_str());
+            return jnull!();
         }
     };
 
-    file_path.push('\0'); // end C-string with null char
-    let file_name = file_path.as_str().as_ptr();
+    let result_string = match env.new_string(message.message_text) {
+        Ok(s) => s,
+        Err(_) => return jnull!(),
+    };
 
-    return unsafe {
-        let msg_key = ftok(file_name as *const c_char, 'P' as i32);
-        check_err!(env, msg_key, -1);
-        let ret = msgget(msg_key, 0o666 | IPC_CREAT);
-        check_err!(env, ret, -1)
+    let result_obj = env.new_object(
+        BUFFER_CLASS,
+        BUFFER_CONST,
+        &[
+            JValue::Long(message.header.message_type),
+            JValue::Object(JObject::from(result_string)),
+        ],
+    );
+
+    return match result_obj {
+        Ok(o) => o.into_inner(),
+        Err(_) => jnull!(),
     };
 }
 
@@ -95,176 +138,50 @@ pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_create
 pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_sendMessage(
     env: JNIEnv,
     _: JClass,
-    queue_id: jint,
-    message: JObject,
+    client_sock: jint,
+    message: jobject,
 ) {
-    let m_type = get_field!(env, message, "mType", Long);
-    let data = get_field!(
-        env,
-        message,
-        "data",
-        Object(concat!("L", data_class!(), ";"))
-    );
+    if message.is_null() {
+        let _ = env.throw_new(NPE_CLASS, "message must not be null");
+        return;
+    }
 
-    let response_chan = get_field!(env, data, "responseChan", Int);
-    let response_pid = get_field!(env, data, "responsePid", Int);
-    let message_type = get_field!(env, data, "messageType", Short);
-    let message_length = get_field!(env, data, "messageLength", Byte);
-    let message = get_field!(env, data, "message", Object("[B"));
+    let message_type = get_field!(env, message, "messageType", Long);
+    let message_data = get_field!(env, message, "messageData", Object(JAVA_STRING_TYPE));
 
-    let len = match env.get_array_length(message.into_inner()) {
-        Ok(siz) => siz,
-        _ => {
-            throw(
-                &env,
-                concat!("Failed to get array length for ", message_field_name!()),
-            );
+    let java_string = env.get_string(JString::from(message_data));
+    let java_string = match java_string {
+        Ok(s) => String::from(s),
+        Err(e) => {
+            let error_msg = format!("Failed to retrieve string from message: {}", e);
+            throw(&env, error_msg.as_str());
             return;
         }
     };
 
-    if len != message_length!() as i32 {
-        throw(
-            &env,
-            concat!(
-                "Length of {} is not {}",
-                message_field_name!(),
-                message_length!()
-            ),
-        );
-        return;
-    }
-
-    let mut message_data: [jbyte; message_length!()] = [0; message_length!()];
-    if let Err(_) = env.get_byte_array_region(message.into_inner(), 0, &mut message_data) {
-        throw(&env, concat!("Failed to copy ", message_field_name!()));
-        return;
-    }
-
-    let mut msg = Message {
-        m_type,
-        data: Data {
-            response_chan,
-            response_pid: response_pid as u32,
+    let message = Message {
+        header: MessageHeader {
             message_type,
-            message_length: message_length as u8,
-            message: [0; message_length!()],
+            message_length: java_string.len() as i64,
         },
+        message_text: java_string,
     };
-    message_data
-        .iter()
-        .map(|b| *b as u8)
-        .enumerate()
-        .for_each(|(i, b)| msg.data.message[i] = b);
 
-    let ret = unsafe {
-        msgsnd(
-            queue_id,
-            &mut msg as *mut _ as *mut c_void,
-            size_of::<Data>(),
-            0,
-        )
-    };
-    check_err!(env, ret);
+    if let Err(e) = send_message(client_sock, &message) {
+        let error_msg = format!("Failed to send message to {}: {}", client_sock, e);
+        throw(&env, error_msg.as_str());
+    }
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_receiveMessage(
+pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_closeSocket(
     env: JNIEnv,
     _: JClass,
-    queue_id: jint,
-) -> jobject {
-    let mut message = Message {
-        m_type: MESSAGE_TYPE,
-        data: Data {
-            response_chan: 0,
-            response_pid: 0,
-            message_type: 0,
-            message_length: 0,
-            message: [0; message_length!()],
-        },
-    };
-
-    let ret = unsafe {
-        msgrcv(
-            queue_id,
-            &mut message as *mut _ as *mut c_void,
-            size_of::<Data>(),
-            MESSAGE_TYPE,
-            0,
-        )
-    };
-    check_err!(env, ret, JObject::null().into_inner());
-
-    let message_data = match env.byte_array_from_slice(&message.data.message) {
-        Ok(array) => JObject::from(array),
-        _ => {
-            throw(&env, "Failed to create Java byte array from message data");
-            return JObject::null().into_inner();
-        }
-    };
-
-    let d = &message.data;
-    let obj = env.new_object(
-        data_class!(),
-        "(IISB[B)V",
-        &[
-            Int(d.response_chan),
-            Int(d.response_pid as jint),
-            Short(d.message_type),
-            Byte(d.message_length as jbyte),
-            Object(message_data),
-        ],
-    );
-    let obj = match obj {
-        Ok(obj) => obj,
-        _ => {
-            throw(&env, concat!("Could not create class ", data_class!()));
-            return JObject::null().into_inner();
-        }
-    };
-
-    let msg_obj = env.new_object(
-        message_class!(),
-        concat!("(JL", data_class!(), ";)V"),
-        &[Long(message.m_type as jlong), Object(obj)],
-    );
-    let msg_obj = match msg_obj {
-        Ok(msg_obj) => msg_obj,
-        _ => {
-            throw(&env, concat!("Could not create class ", message_class!()));
-            return JObject::null().into_inner();
-        }
-    };
-
-    return msg_obj.into_inner();
-}
-
-#[no_mangle]
-#[allow(non_snake_case)]
-pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_deleteQueue(
-    env: JNIEnv,
-    _: JClass,
-    queue_id: jint,
+    sock: jint,
 ) {
-    let res = unsafe { msgctl(queue_id, IPC_RMID, null_mut()) };
-    check_err!(env, res);
-}
-
-#[no_mangle]
-#[allow(non_snake_case)]
-pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_pidExists(
-    env: JNIEnv,
-    _: JClass,
-    pid: jint,
-) -> jboolean {
-    return if let Err(Sys(e)) = kill(Pid::from_raw(pid), None) {
-        if e != Errno::ESRCH {
-            throw(&env, e.desc());
-        }
-        JNI_FALSE
-    } else {
-        JNI_TRUE
-    };
+    if let Err(e) = close_socket(sock) {
+        let error_msg = format!("Error while closing socket {}: {}", sock, e);
+        throw(&env, error_msg.as_str());
+    }
 }

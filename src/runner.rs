@@ -16,7 +16,7 @@
 use crate::daemon::{run_daemon, Status};
 use crate::log::{find_log_file, tail};
 use crate::protocol::check_jar_protocol;
-use crate::util::{find_prog, ExitError};
+use crate::util::{find_program, ExitError, ExitValue};
 use clap::ArgMatches;
 use nix::errno::Errno::ESRCH;
 use nix::sys::signal;
@@ -34,16 +34,18 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
-use std::{env, fs, thread};
+use std::{env, fs, thread, process};
 use sys_info::mem_info;
 
 static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
 
+pub const SOCK_FILE_NAME: &'static str = "paper.sock";
 pub const PID_FILE_NAME: &'static str = "paper.pid";
+
 const STOP_EXIT_CODE: i32 = 13;
 const RESTART_EXIT_CODE: i32 = 27;
 
-pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
+pub fn start(sub_m: &ArgMatches) -> Result<(), ExitValue> {
     let env = setup_java_env(sub_m)?;
 
     check_jar_protocol(&env.jar_file)?;
@@ -55,7 +57,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     let mut lib_file = std::env::temp_dir();
     {
         lib_file.push("libpaperd_jni.so.gz");
-        // Find a file name that is available..
+        // Find a file name that is available
         let mut count = 1;
         while lib_file.exists() {
             lib_file.pop();
@@ -65,7 +67,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
 
         if let Err(e) = fs::write(&lib_file, JNI_LIB) {
             eprintln!("Failed to write JNI library to temp directory: {}", e);
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     }
 
@@ -92,7 +94,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
                 }
             } else {
                 eprintln!("Timeout while waiting for server to start.");
-                Err(1)
+                Err(ExitValue::Code(1))
             };
         }
         Ok(Status::CONTINUE) => {}
@@ -111,7 +113,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
     loop {
         let child = start_process(&env)?;
 
-        let pid = child.id();
+        let pid = process::id();
 
         // Write pid file
         let pid_file = env.working_dir.join(PID_FILE_NAME);
@@ -162,10 +164,14 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
         let _ = fs::remove_file(&lib_file);
     }
 
-    return if result == 0 { Ok(()) } else { Err(result) };
+    return if result == 0 {
+        Ok(())
+    } else {
+        Err(ExitValue::Code(result))
+    };
 }
 
-fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
+fn check_eula(env: &JavaEnv) -> Result<bool, ExitValue> {
     // If this property is set then the eula is agreed by default
     for arg in &env.args {
         let arg = arg.to_ascii_lowercase();
@@ -193,12 +199,12 @@ fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
     return Ok(false);
 }
 
-pub fn run_cmd(sub_m: &ArgMatches) -> Result<(), i32> {
+pub fn run_cmd(sub_m: &ArgMatches) -> Result<(), ExitValue> {
     let env = setup_java_env(sub_m)?;
     return run_server_foreground(&env);
 }
 
-fn run_server_foreground(env: &JavaEnv) -> Result<(), i32> {
+fn run_server_foreground(env: &JavaEnv) -> Result<(), ExitValue> {
     let child = start_process(env)?;
 
     let pid = child.id();
@@ -209,7 +215,7 @@ fn run_server_foreground(env: &JavaEnv) -> Result<(), i32> {
 
     signals.close();
 
-    return Err(result);
+    return Err(ExitValue::Code(result));
 }
 
 struct JavaEnv {
@@ -220,7 +226,7 @@ struct JavaEnv {
     server_args: Vec<String>,
 }
 
-fn start_process(env: &JavaEnv) -> Result<Child, i32> {
+fn start_process(env: &JavaEnv) -> Result<Child, ExitValue> {
     let result = Command::new(&env.java_file)
         .args(&env.args)
         .arg("-jar")
@@ -233,7 +239,7 @@ fn start_process(env: &JavaEnv) -> Result<Child, i32> {
         Ok(c) => Ok(c),
         Err(err) => {
             eprintln!("Failed to start server: {}", err);
-            Err(1)
+            Err(ExitValue::Code(1))
         }
     };
 }
@@ -246,20 +252,20 @@ fn shell_context(s: &str) -> Result<Option<Cow<'static, str>>, env::VarError> {
     }
 }
 
-fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
+fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, ExitValue> {
     let mut config: Option<RunnerConfig> = match sub_m.value_of("CONFIG_FILE") {
         Some(config_path_text) => {
             let config_path = PathBuf::from(config_path_text);
             if !config_path.exists() {
                 eprintln!("No file found at {}", config_path_text);
-                return Err(1);
+                return Err(ExitValue::Code(1));
             }
 
             let config_file = match File::open(config_path) {
                 Ok(f) => f,
                 Err(e) => {
                     eprintln!("Failed to open config file {}: {}", config_path_text, e);
-                    return Err(1);
+                    return Err(ExitValue::Code(1));
                 }
             };
 
@@ -267,7 +273,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Failed to parse config file {}: {}", config_path_text, e);
-                    return Err(1);
+                    return Err(ExitValue::Code(1));
                 }
             }
         }
@@ -311,7 +317,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
                 "Could not find a JVM executable. Either make sure it's present on the PATH, or \
                  there's a valid JAVA_HOME, or specify it with -j. See --help for more details."
             );
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -322,19 +328,19 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     {
         Some(path) => match canonicalize(PathBuf::from(path)) {
             Ok(canonical) => canonical,
-            _ => {
-                eprintln!("Failed to get full path to jar {}", path);
-                return Err(1);
+            Err(e) => {
+                eprintln!("Failed to get full path to jar {}: {}", path, e);
+                return Err(ExitValue::Code(1));
             }
         },
         None => {
             eprintln!("Failed to resolve jar file path");
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
     if !jar_path.is_file() {
         eprintln!("Could not find jar {}", jar_path.to_string_lossy());
-        return Err(1);
+        return Err(ExitValue::Code(1));
     }
 
     // Get the jar's parent directory
@@ -351,7 +357,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
                 "Failed to find parent directory for jar {}",
                 jar_path.to_string_lossy()
             );
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -366,7 +372,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
                     "Found server already running in this directory with PID {}, will not continue",
                     pid
                 );
-                return Err(1);
+                return Err(ExitValue::Code(1));
             }
             Err(Error::Sys(e)) => {
                 if e == ESRCH {
@@ -374,7 +380,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
                     fs::remove_file(&pid_file).conv("Failed to delete PID file")?;
                 } else {
                     println!("Unknown error occurred (start): {}", e);
-                    return Err(1);
+                    return Err(ExitValue::Code(1));
                 }
             }
             _ => {}
@@ -394,14 +400,14 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     });
 }
 
-fn forward_signals(pid: u32) -> Result<Signals, i32> {
+fn forward_signals(pid: u32) -> Result<Signals, ExitValue> {
     // While the server is running we'll redirect some signals to it
     let signals = Signals::new(&[SIGHUP, SIGINT, SIGQUIT, SIGTRAP, SIGABRT, SIGTERM]);
     let signals = match signals {
         Ok(s) => s,
         Err(err) => {
             eprintln!("Failed to register signal handlers: {}", err);
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
     };
 
@@ -429,10 +435,13 @@ fn wait_for_child(mut child: Child) -> i32 {
 
 /// Searches the PATH for java. If that fails, JAVA_HOME is searched as well.
 fn find_java() -> Option<PathBuf> {
-    return find_prog(&[("PATH", "java"), ("JAVA_HOME", "bin/java")]);
+    return find_program(&[("PATH", "java"), ("JAVA_HOME", "bin/java")]);
 }
 
-fn get_jvm_args(config: &Option<&RunnerConfig>, sub_m: &ArgMatches) -> Result<Vec<String>, i32> {
+fn get_jvm_args(
+    config: &Option<&RunnerConfig>,
+    sub_m: &ArgMatches,
+) -> Result<Vec<String>, ExitValue> {
     if let Some(args) = config.and_then(|c| c.jvm_args.as_ref().map(|a| a.clone())) {
         return Ok(args);
     }
@@ -449,7 +458,7 @@ fn get_jvm_args(config: &Option<&RunnerConfig>, sub_m: &ArgMatches) -> Result<Ve
             "Invalid format for JVM heap size. Should be something like 500m or 2G.";
         if value.is_empty() {
             eprintln!("{}", ERROR_MSG);
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
 
         if value[..value.len() - 1]
@@ -458,7 +467,7 @@ fn get_jvm_args(config: &Option<&RunnerConfig>, sub_m: &ArgMatches) -> Result<Ve
             && value.chars().last().map_or(true, |c| c != 'm' && c != 'G')
         {
             eprintln!("{}", ERROR_MSG);
-            return Err(1);
+            return Err(ExitValue::Code(1));
         }
 
         heap = value.to_string();

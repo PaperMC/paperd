@@ -13,10 +13,14 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use alloc::string::String;
-use jni::objects::JObject;
 use jni::objects::JValue::Object;
+use jni::objects::{JObject, JString, JThrowable, JValue};
+use jni::sys::jobject;
 use jni::JNIEnv;
+use std::string::String;
+
+pub const JAVA_STRING_TYPE: &'static str = "Ljava/lang/String;";
+pub const NPE_CLASS: &'static str = "java/lang/NullPointerException";
 
 pub fn get_path_string(env: &JNIEnv, path: JObject) -> Result<String, ()> {
     let abs_path = match env.call_method(path, "toAbsolutePath", "()Ljava/nio/file/Path;", &[]) {
@@ -42,14 +46,47 @@ pub fn get_path_string(env: &JNIEnv, path: JObject) -> Result<String, ()> {
     return Ok(text.into());
 }
 
+const NATIVE_EXCEPTION_CLASS: &'static str = "com/destroystokyo/paper/daemon/NativeErrorException";
+const NATIVE_TIMEOUT_EXCEPTION_CLASS: &'static str =
+    "com/destroystokyo/paper/daemon/NativeTimeoutException";
+
 pub fn throw(env: &JNIEnv, message: &str) {
-    let _ = env.throw((
-        "com/destroystokyo/paper/daemon/NativeErrorException",
-        message,
-    ));
+    let _ = env.throw_new(NATIVE_EXCEPTION_CLASS, message);
 }
 
-pub fn get_class_name(env: &JNIEnv, obj: JObject) -> String {
+pub fn throw_timeout(env: &JNIEnv) {
+    let obj = env.new_object(NATIVE_TIMEOUT_EXCEPTION_CLASS, "()V", &[]);
+    if obj.is_ok() {
+        let _ = env.throw(JThrowable::from(obj.unwrap()));
+    }
+}
+
+pub fn throw_with_cause(env: &JNIEnv, message: &str, cause: &JThrowable) {
+    let java_string = match env.new_string(message) {
+        Ok(string) => string,
+        Err(_) => JString::from(jnull!()),
+    };
+
+    let ex_obj = match env.new_object(
+        NATIVE_EXCEPTION_CLASS,
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        &[
+            JValue::Object(JObject::from(java_string)),
+            JValue::Object(JObject::from(*cause)),
+        ],
+    ) {
+        Ok(obj) => obj,
+        Err(_) => {
+            // Just attempt to throw an exception with a cause
+            throw(env, message);
+            return;
+        }
+    };
+
+    let _ = env.throw(JThrowable::from(ex_obj));
+}
+
+pub fn get_class_name(env: &JNIEnv, obj: jobject) -> String {
     return env
         .get_object_class(obj)
         .and_then(|class| env.call_method(class, "getName", "()Ljava/lang/String;", &[]))
@@ -57,74 +94,4 @@ pub fn get_class_name(env: &JNIEnv, obj: JObject) -> String {
         .and_then(|class_name| env.get_string(class_name.into()))
         .map(|str| String::from(str))
         .unwrap_or(String::from("<unknown>"));
-}
-
-// I have no idea if there's a better way of doing this...I really hope there is
-macro_rules! get_field {
-    ($env:ident, $obj:ident, $name:expr, Object($ty:expr)) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Object, $ty))
-    };
-    ($env:ident, $obj:ident, $name:expr, Byte) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Byte, "B"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Char) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Char, "C"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Short) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Short, "S"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Int) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Int, "I"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Long) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Long, "J"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Bool) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Bool, "Z"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Float) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Float, "F"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Double) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Double, "D"))
-    };
-    ($env:ident, $obj:ident, $name:expr, Void) => {
-        get_field!($env, $obj, $name, (jni::objects::JValue::Void, "V"))
-    };
-    ($env:ident, $obj:ident, $name:expr, ($ret:path, $ty:expr)) => {
-        match $env.get_field($obj, $name, $ty) {
-            Ok($ret(t)) => t,
-            _ => {
-                let class_name = crate::util::get_class_name(&$env, $obj);
-                let mut err_str = alloc::string::String::from(stringify!(Failed to get $name from ));
-                err_str.push_str(class_name.as_str());
-                throw(&$env, err_str.as_str());
-                return;
-            }
-        };
-    };
-}
-
-macro_rules! check_err {
-    ($env:ident, $val:expr) => {{
-        let ret = $val;
-        if ret == -1 {
-            let msg = Errno::last().desc();
-            let mut err_str = alloc::string::String::from("Error during system call: ");
-            err_str.push_str(msg);
-            throw(&$env, err_str.as_str());
-            return;
-        }
-        ret
-    }};
-
-    ($env:ident, $val:expr, $ret_val:expr) => {{
-        let ret = $val;
-        if ret == -1 {
-            let msg = Errno::last().desc();
-            throw(&$env, msg);
-            return $ret_val;
-        }
-        ret
-    }};
 }
