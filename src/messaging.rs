@@ -87,6 +87,7 @@ struct ServerErrorMessage {
 }
 
 impl MessageChannel {
+    #[cfg(feature = "console")]
     pub fn with_stopper(&mut self, is_running: &Arc<AtomicBool>) -> &mut MessageChannel {
         self.is_running = Some(is_running.clone());
         return self;

@@ -162,11 +162,7 @@ pub fn start(sub_m: &ArgMatches) -> Result<(), i32> {
         let _ = fs::remove_file(&lib_file);
     }
 
-    if result == 0 {
-        return Ok(());
-    } else {
-        return Err(result);
-    }
+    return if result == 0 { Ok(()) } else { Err(result) };
 }
 
 fn check_eula(env: &JavaEnv) -> Result<bool, i32> {
@@ -279,7 +275,7 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, i32> {
     };
 
     // Replace shell variables in config file values if they are present
-    if Some(config) = config.as_mut() {
+    if let Some(config) = config.as_mut() {
         let map_func = |text: String| {
             shellexpand::env_with_context(text.as_str(), shell_context)
                 .unwrap()
