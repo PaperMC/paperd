@@ -221,22 +221,20 @@ impl AnsiCode {
 
     fn enable(self) {
         let (pair, attr) = self.attr_pair();
-        if pair.is_some() {
-            let (id, _, _) = pair.unwrap();
+        if let Some((id, _, _)) = pair {
             attron(COLOR_PAIR(id));
         }
-        if attr.is_some() {
-            attron(attr.unwrap());
+        if let Some(attr) = attr {
+            attron(attr);
         }
     }
 
     fn disable(self) {
         let (pair, attr) = self.attr_pair();
-        if attr.is_some() {
-            attroff(attr.unwrap());
+        if let Some(attr) = attr {
+            attroff(attr);
         }
-        if pair.is_some() {
-            let (id, _, _) = pair.unwrap();
+        if let Some((id, _, _)) = pair {
             attroff(COLOR_PAIR(id));
         }
     }
@@ -366,8 +364,7 @@ impl StyledMessage {
             }
         }
 
-        if last_code.is_some() {
-            let last_code = last_code.unwrap();
+        if let Some(last_code) = last_code {
             if last_code != AnsiCode::Reset {
                 result.push_str(AnsiCode::Reset.ansi_code());
             }
