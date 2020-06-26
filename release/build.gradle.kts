@@ -20,8 +20,7 @@ subprojects {
     }
 
     val imageName = "paperd/$systemName:$versionName"
-    val dockerImageFile = file("$buildDir/image.tar")
-    val dockerImage = DockerImage(systemName, versionName, imageName, dockerFile, dockerImageFile)
+    val dockerImage = DockerImage(systemName, versionName, imageName, dockerFile)
 
     val dockerBuildTask = createDockerBuildTask(dockerImage, rustVersion)
     val runBuildTask = createRunBuildTask(dockerImage, true)
@@ -46,7 +45,7 @@ subprojects {
 val systemReleaseTasks = mutableListOf<TaskProvider<Task>>()
 val systemCleanTasks = mutableListOf<TaskProvider<Task>>()
 for ((systemName, buildTasks) in releaseTasks) {
-    systemCleanTasks += findProject(":targets:$systemName")!!.tasks.register("buildReleases") {
+    systemReleaseTasks += findProject(":targets:$systemName")!!.tasks.register("buildReleases") {
         dependsOn(buildTasks)
         group = "paperd"
         description = "Build all releases for ${systemName.capitalize()}"
@@ -71,7 +70,7 @@ tasks.register("buildReleases") {
     description = "Alias of :targets:buildReleases"
 }
 
-val clean = findProject(":targets")!!.tasks.register("clean") {
+val clean by findProject(":targets")!!.tasks.registering {
     dependsOn(systemCleanTasks)
     group = "clean"
     description = "Clean all targets"
@@ -92,8 +91,6 @@ fun Project.createDockerBuildTask(
 
         inputs.file(dockerImage.dockerFile)
 
-        outputs.file(dockerImage.dockerImageFile)
-
         doLast {
             docker(
                 "build", "-t", dockerImage.imageName,
@@ -102,9 +99,6 @@ fun Project.createDockerBuildTask(
                 "--build-arg", "rustVersion=$rustVersion",
                 "."
             )
-
-            // save the docker image to a file so it can be cached by gradle
-            docker("save", "--output", dockerImage.dockerImageFile.absolutePath, dockerImage.imageName)
         }
     }
 }
@@ -132,7 +126,6 @@ fun Project.createRunBuildTask(
             )
         }
         inputs.files(inputSource)
-        inputs.file(dockerImage.dockerImageFile)
 
         val (outputDir, targetFile) = if (includeConsole) {
             file("$buildDir/cargo-target") to
@@ -158,8 +151,6 @@ fun Project.createRunBuildTask(
             if (!registryDir.exists() && !registryDir.mkdirs()) {
                 throw IOException("Failed to create registry directory $registryDir")
             }
-
-            docker("load", "--input", dockerImage.dockerImageFile.absolutePath)
 
             val uid = runCmd("id", "-u")
             val gid = runCmd("id", "-g")
@@ -199,6 +190,5 @@ data class DockerImage(
     val systemName: String,
     val versionName: String,
     val imageName: String,
-    val dockerFile: File,
-    val dockerImageFile: File
+    val dockerFile: File
 )

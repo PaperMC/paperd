@@ -26,12 +26,13 @@ fn main() {
     let cargo_loc = env::var("CARGO").unwrap();
     let profile = env::var("PROFILE").unwrap();
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let num_jobs = env::var("NUM_JOBS").unwrap();
 
     let is_release = profile == "release";
     let is_mac = target_os == "macos";
     let extension = if is_mac { "dylib" } else { "so" };
 
-    build_jni(&cargo_loc, is_release, &out_dir);
+    build_jni(&cargo_loc, is_release, &out_dir, &num_jobs);
 
     let lib_file_name = if is_release {
         "release/libpaperd_jni"
@@ -48,11 +49,12 @@ fn main() {
     println!("cargo:rustc-env=PAPERD_JNI_LIB={}.gz", lib_file);
 }
 
-fn build_jni(cargo_loc: &str, is_release: bool, out_dir: &str) {
+fn build_jni(cargo_loc: &str, is_release: bool, out_dir: &str, num_jobs: &str) {
     let mut command = Command::new(cargo_loc);
-    let mut command = command
-        .current_dir("paperd-jni")
-        .args(&["build", "--target-dir", out_dir]);
+    let mut command =
+        command
+            .current_dir("paperd-jni")
+            .args(&["build", "-j", num_jobs, "--target-dir", out_dir]);
 
     if is_release {
         command.arg("--release");
