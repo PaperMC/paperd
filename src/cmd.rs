@@ -79,11 +79,13 @@ LICENSE:
                 .arg(
                     Arg::with_name("COMMAND")
                         .help(
-                            "The command to send to the MC server. Note the whole \
-                             command should be one argument, so whitespace will need to be quoted \
-                             or escaped. The string will be passed directly to the server to \
-                             parse itself.",
+                            "The command to send to the MC server. Arguments will be appended \
+                            together as one string, with a single space between arguments. If you \
+                            prefer to have more control over whitespace then you should quote your \
+                            arguments first.",
                         )
+                        .multiple(true)
+                        .allow_hyphen_values(true)
                         .required(true),
                 )
                 .display_order(1),
@@ -264,6 +266,21 @@ impl<'a, 'b> PaperArg<'a, 'b> for App<'a, 'b> {
                     .multiple(true),
             )
             .arg(
+                Arg::with_name("SERVER_ARGS")
+                    .help(
+                        "Provide a set of server arguments to be used when running the jar. One \
+                        instance of this argument represents a single quoted argument, including \
+                        any whitespace present. Repeat this argument with a value for each \
+                        argument you want to include. For example, to pass '--port 2000' as server \
+                        arguments, you would pass '-s --port -s 2000'.",
+                    )
+                    .short("s")
+                    .long("server-arg")
+                    .takes_value(true)
+                    .multiple(true)
+                    .number_of_values(1),
+            )
+            .arg(
                 Arg::with_name("CONFIG_FILE")
                     .help(
                         "Define a JSON configuration file which specifies all other arguments. \
@@ -327,10 +344,12 @@ CONFIG FILE:
     * jvm        | This is equivalent to the --jvm argument.
     * jarFile    | This is equivalent to the --jar argument.
     * workingDir | This is equivalent to the -w or --working-dir argument.
+    * serverArgs | This is equivalent to the -s or --server-arg argument.
     * jvmArgs    | This is equivalent to the CUSTOM_ARGS argument.
-    * serverArgs | This has no equivalent argument. This has the same format as the jvmArgs or
-                   CUSTOM_ARGS configuration, but specifies server arguments instead of JVM
-                   arguments such as --world-dir or --port.
+
+    The serverArgs and jvmArgs fields are lists of arguments, where each entry in the list is one
+    argument to be passed to either the server or the JVM respectively. This includes any whitespace
+    which may appear in the argument. All other fields are JSON strings.
 
     Example JSON file:
     {{

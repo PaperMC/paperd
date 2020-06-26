@@ -102,6 +102,7 @@ pub fn tps_cap(tps: f64) -> f64 {
     return tps.min(20.0);
 }
 
+#[derive(Clone)]
 pub enum ExitValue {
     Code(i32),
     Shutdown,

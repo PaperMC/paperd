@@ -34,7 +34,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
-use std::{env, fs, thread, process};
+use std::{env, fs, process, thread};
 use sys_info::mem_info;
 
 static JNI_LIB: &'static [u8] = include_bytes!(env!("PAPERD_JNI_LIB"));
@@ -223,7 +223,7 @@ struct JavaEnv {
     jar_file: PathBuf,
     working_dir: PathBuf,
     args: Vec<String>,
-    server_args: Vec<String>,
+    cmd_args: Vec<String>,
 }
 
 fn start_process(env: &JavaEnv) -> Result<Child, ExitValue> {
@@ -231,7 +231,7 @@ fn start_process(env: &JavaEnv) -> Result<Child, ExitValue> {
         .args(&env.args)
         .arg("-jar")
         .arg(&env.jar_file)
-        .args(&env.server_args)
+        .args(&env.cmd_args)
         .current_dir(&env.working_dir)
         .spawn();
 
@@ -388,15 +388,21 @@ fn setup_java_env(sub_m: &ArgMatches) -> Result<JavaEnv, ExitValue> {
     }
 
     let jvm_args = get_jvm_args(&config, sub_m)?;
+    let server_args = sub_m
+        .values_of("SERVER_ARGS")
+        .map(|values| values.map(|s| s.to_string()).collect())
+        .unwrap_or_else(|| {
+            config
+                .and_then(|c| c.server_args.as_ref().map(|a| a.clone()))
+                .unwrap_or_else(|| Vec::new())
+        });
 
     return Ok(JavaEnv {
         java_file: java_path,
         jar_file: jar_path,
         working_dir: parent_path,
         args: jvm_args,
-        server_args: config
-            .and_then(|c| c.server_args.as_ref().map(|a| a.clone()))
-            .unwrap_or_else(|| Vec::new()),
+        cmd_args: server_args,
     });
 }
 
@@ -442,11 +448,11 @@ fn get_jvm_args(
     config: &Option<&RunnerConfig>,
     sub_m: &ArgMatches,
 ) -> Result<Vec<String>, ExitValue> {
-    if let Some(args) = config.and_then(|c| c.jvm_args.as_ref().map(|a| a.clone())) {
-        return Ok(args);
-    }
     if let Some(vals) = sub_m.values_of("CUSTOM_ARGS") {
         return Ok(vals.map(|s| s.to_string()).collect());
+    }
+    if let Some(args) = config.and_then(|c| c.jvm_args.as_ref().map(|a| a.clone())) {
+        return Ok(args);
     }
 
     // When all else fails, use 500m

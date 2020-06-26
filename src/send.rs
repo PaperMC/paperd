@@ -19,27 +19,56 @@ use crate::protocol::check_protocol;
 use crate::util::{get_sock, ExitValue};
 use clap::ArgMatches;
 use serde::Serialize;
+use std::sync::{Arc, Mutex};
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 
 pub fn send(sub_m: &ArgMatches) -> Result<(), ExitValue> {
     let (sock, sock_file) = get_sock(sub_m)?;
     check_protocol(&sock)?;
 
-    let command = match sub_m.value_of("COMMAND") {
-        Some(s) => s,
+    let command: String = match sub_m.values_of("COMMAND") {
+        Some(s) => s.map(|a| a.to_string()).collect::<Vec<String>>().join(" "),
         None => {
             eprintln!("No command given.");
             return Err(ExitValue::Code(1));
         }
     };
 
-    send_command(&sock, command)?;
+    return if sub_m.is_present("TAIL") {
+        let lock: Arc<Mutex<Option<ExitValue>>> = Arc::new(Mutex::new(None));
+        let thread_lock = lock.clone();
 
-    if sub_m.is_present("TAIL") {
-        let log_file = find_log_file(&sock_file)?;
-        return tail(log_file, 0, true);
-    }
+        // Start tailing in a separate thread so it won't be too late and miss the response
+        spawn(move || {
+            let mut exit_value = thread_lock.lock().unwrap();
+            let log_file = match find_log_file(&sock_file) {
+                Ok(f) => f,
+                Err(e) => {
+                    *exit_value = Some(e.clone());
+                    return;
+                }
+            };
+            if let Err(e) = tail(log_file, 0, true) {
+                *exit_value = Some(e.clone());
+            }
+        });
 
-    return Ok(());
+        // Wait long enough to acquire the lock
+        sleep(Duration::from_millis(1));
+
+        send_command(&sock, command.as_str())?;
+
+        // Wait for tail to complete before returning
+        let exit_value = lock.lock().unwrap();
+        if let Some(e) = &*exit_value {
+            Err(e.clone())
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    };
 }
 
 pub fn send_command(sock: &MessageSocket, cmd: &str) -> Result<(), ExitValue> {

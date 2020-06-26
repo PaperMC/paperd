@@ -18,7 +18,6 @@ use crate::util::{ExitError, ExitValue};
 use paperd_lib::{close_socket, receive_message, send_message, Message, MessageHeader, Socket};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-#[cfg(feature = "console")]
 use {nix::errno::Errno, paperd_lib::Error};
 
 pub struct MessageSocket {
