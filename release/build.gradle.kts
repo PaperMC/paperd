@@ -38,6 +38,8 @@ subprojects {
         description = "Clean outputs of for ${systemName.capitalize()} $versionName"
         doLast {
             delete(file("build"))
+            delete(runBuildTask)
+            delete(runBuildNoConsoleTask)
         }
     }
 }
