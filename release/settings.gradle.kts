@@ -1,31 +1,31 @@
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 
 rootProject.name = "paperd"
 
-val targetsDir = file("targets")
-val targetsPath: Path = targetsDir.toPath()
+val rootProjectDir: Path = rootProject.projectDir.toPath()
+val targetsDir: Path = file("targets").toPath()
 
-targetsDir.walkTopDown()
-    .filter { it.isFile && it.name == "versions.txt" }
-    .map { it.toPath() }
+Files.walk(targetsDir)
+    .filter { Files.isRegularFile(it) && it.fileName.toString() == "versions.txt" }
     .forEach { path ->
-        val relative = targetsPath.relativize(path)
-        val systemName = relative.getName(0)
+        val systemName = targetsDir.relativize(path).getName(0).toString()
         Files.lines(path)
             .filter { it.isNotBlank() }
             .forEach { line ->
-                val projectName = "targets:$systemName:$line"
-                val projectDir = "${rootProject.projectDir}/build/$systemName/$line"
-                file(projectDir).let { dir ->
-                    if (!dir.exists()) {
-                        if (!dir.mkdirs()) {
-                            throw IOException("Failed to create $dir")
-                        }
-                    }
-                }
-                include(projectName)
-                project(":$projectName").projectDir = file(projectDir)
+                val systemProjectName = "targets:$systemName:$line"
+                val fullProjectName = "$systemProjectName:full"
+                val fullProjectDir = rootProjectDir.resolve(Paths.get("build", systemName, line, "full"))
+                Files.createDirectories(fullProjectDir)
+                val noConsoleProjectName = "$systemProjectName:noConsole"
+                val noConsoleProjectDir = rootProjectDir.resolve(Paths.get("build", systemName, line, "noConsole"))
+                Files.createDirectories(noConsoleProjectDir)
+
+                include(fullProjectName)
+                project(":$fullProjectName").projectDir = fullProjectDir.toFile()
+                include(noConsoleProjectName)
+                project(":$noConsoleProjectName").projectDir = noConsoleProjectDir.toFile()
+                project(":$systemProjectName").projectDir = fullProjectDir.parent.toFile()
             }
     }

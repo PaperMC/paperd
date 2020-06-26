@@ -1,84 +1,124 @@
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import org.gradle.api.tasks.Copy
 
 val rustVersion: String by project
 
-val releaseTasks = mutableMapOf<String, MutableList<TaskProvider<Task>>>()
-val cleanTasks = mutableMapOf<String, MutableList<TaskProvider<Task>>>()
+val releaseTasks = mutableMapOf<String, MutableMap<String, MutableList<TaskProvider<Task>>>>()
+val cleanTasks = mutableMapOf<String, MutableMap<String, MutableList<TaskProvider<Task>>>>()
 
 subprojects {
     // make sure we're actually a fully qualified project
     val parentProj = parent ?: return@subprojects
-    parentProj.parent?.parent ?: return@subprojects
+    val grandParentProj = parentProj.parent ?: return@subprojects
+    parentProj.parent?.parent?.parent ?: return@subprojects
 
-    val versionName = name
-    val systemName = parentProj.name
+    val typeName = name
+    val versionName = parentProj.name
+    val systemName = grandParentProj.name
 
-    val dockerFile = parentProj.file("${parentProj.name}.Dockerfile")
+    val dockerFile = grandParentProj.file("${grandParentProj.name}.Dockerfile")
     if (!dockerFile.exists()) {
-        throw Exception("Dockerfile doesn't exist for $parentProj: $dockerFile")
+        throw Exception("Dockerfile doesn't exist for $grandParentProj: $dockerFile")
     }
 
     val imageName = "paperd/$systemName:$versionName"
     val dockerImage = DockerImage(systemName, versionName, imageName, dockerFile)
 
-    val dockerBuildTask = createDockerBuildTask(dockerImage, rustVersion)
-    val runBuildTask = createRunBuildTask(dockerImage, true)
-    runBuildTask {
-        dependsOn(dockerBuildTask)
-    }
-    val runBuildNoConsoleTask = createRunBuildTask(dockerImage, false)
-    runBuildNoConsoleTask {
-        dependsOn(dockerBuildTask)
+    // Make sure the docker build task is set up on the parent project
+    val dockerBuildTask: TaskProvider<Task> = try {
+        val copyDockerIgnore = parentProj.copyDockerIgnore()
+        val dockerBuildTask = parentProj.createDockerBuildTask(dockerImage, rustVersion)
+        dockerBuildTask {
+            dependsOn(copyDockerIgnore)
+        }
+        dockerBuildTask
+    } catch (e: Exception) {
+        parentProj.tasks.named("buildDockerImage")
     }
 
-    releaseTasks.computeIfAbsent(systemName) { mutableListOf() }.addAll(listOf(runBuildTask, runBuildNoConsoleTask))
-    cleanTasks.computeIfAbsent(systemName) { mutableListOf() } += tasks.register("clean") {
+    val copyDockerIgnore = copyDockerIgnore()
+    val runBuildTask = createRunBuildTask(dockerImage, typeName == "full")
+    runBuildTask {
+        dependsOn(dockerBuildTask, copyDockerIgnore)
+    }
+
+    val clean by tasks.registering {
         group = "clean"
-        description = "Clean outputs of for ${systemName.capitalize()} $versionName"
+        val extra = if (typeName == "full") "" else " (no console)"
+        description = "Clean outputs of for ${systemName.capitalize()} $versionName$extra"
         doLast {
             delete(file("build"))
+            delete(file(".dockerignore"))
             delete(runBuildTask)
-            delete(runBuildNoConsoleTask)
+        }
+    }
+
+    //
+    // Build task hierarchy
+    val versionTargetBuild = parentProj.findOrCreateTask("buildReleases") {
+        group = "paperd"
+        description = "Build all targets for ${systemName.capitalize()} $versionName"
+    }.apply {
+        configure {
+            dependsOn(runBuildTask)
+        }
+    }
+    val systemTargetBuild = grandParentProj.findOrCreateTask("buildReleases") {
+        group = "paperd"
+        description = "Build all targets for all versions for ${systemName.capitalize()}"
+    }.apply {
+        configure {
+            dependsOn(versionTargetBuild)
+        }
+    }
+    grandParentProj.parent!!.findOrCreateTask("buildReleases") {
+        group = "paperd"
+        description = "Build all targets for all versions of all platforms"
+    }.apply {
+        configure {
+            dependsOn(systemTargetBuild)
+        }
+    }
+
+    //
+    // Clean task hierarchy
+    val versionTargetClean = parentProj.findOrCreateTask("clean") {
+        group = "clean"
+        description = "Clean all outputs for ${systemName.capitalize()} $versionName"
+        doLast {
+            delete(parentProj.file(".dockerignore"))
+        }
+    }.apply {
+        configure {
+            dependsOn(clean)
+        }
+    }
+    val systemTargetClean = grandParentProj.findOrCreateTask("clean") {
+        group = "clean"
+        description = "Clean all outputs for all versions ${systemName.capitalize()}"
+    }.apply {
+        configure {
+            dependsOn(versionTargetClean)
+        }
+    }
+    grandParentProj.parent!!.findOrCreateTask("clean") {
+        group = "clean"
+        description = "Clean all outputs for all versions of all platforms"
+    }.apply {
+        configure {
+            dependsOn(systemTargetClean)
         }
     }
 }
 
-val systemReleaseTasks = mutableListOf<TaskProvider<Task>>()
-val systemCleanTasks = mutableListOf<TaskProvider<Task>>()
-for ((systemName, buildTasks) in releaseTasks) {
-    systemReleaseTasks += findProject(":targets:$systemName")!!.tasks.register("buildReleases") {
-        dependsOn(buildTasks)
-        group = "paperd"
-        description = "Build all releases for ${systemName.capitalize()}"
-    }
-}
-for ((systemName, t) in cleanTasks) {
-    systemCleanTasks += findProject(":targets:$systemName")!!.tasks.register("clean") {
-        dependsOn(t)
-        group = "clean"
-        description = "Clean all outputs for ${systemName.capitalize()}"
-    }
-}
-
-val buildReleases by findProject(":targets")!!.tasks.registering {
-    dependsOn(systemReleaseTasks)
-    group = "paperd"
-    description = "Build all releases for all platforms"
-}
 tasks.register("buildReleases") {
-    dependsOn(buildReleases)
+    dependsOn(findProject(":targets")!!.tasks.named("buildReleases"))
     group = "paperd"
     description = "Alias of :targets:buildReleases"
 }
-
-val clean by findProject(":targets")!!.tasks.registering {
-    dependsOn(systemCleanTasks)
-    group = "clean"
-    description = "Clean all targets"
-}
 tasks.register("clean") {
-    dependsOn(clean)
+    dependsOn(findProject(":targets")!!.tasks.named("clean"))
     group = "clean"
     description = "Alias for :targets:clean"
 }
@@ -109,13 +149,12 @@ fun Project.createRunBuildTask(
     dockerImage: DockerImage,
     includeConsole: Boolean
 ): TaskProvider<Task> {
-    val taskName = if (includeConsole) "buildRelease" else "buildReleaseNoConsole"
-    return tasks.register(taskName) {
+    return tasks.register("buildRelease") {
         group = "paperd"
         val extra = if (includeConsole) "" else " (no console)"
         description = "Build release for ${dockerImage.systemName.capitalize()} ${dockerImage.versionName}$extra"
 
-        val baseDir = file("${rootProject.projectDir}/..").absoluteFile
+        val baseDir = rootProject.file("..").absoluteFile
         val inputSource = fileTree(baseDir) {
             include(
                 "src/**/*.rs",
@@ -129,22 +168,17 @@ fun Project.createRunBuildTask(
         }
         inputs.files(inputSource)
 
-        val (outputDir, targetFile) = if (includeConsole) {
-            file("$buildDir/cargo-target") to
-                file("${rootProject.buildDir}/paperd-${dockerImage.systemName}-${dockerImage.versionName}.tar.xz")
+        val targetFileName = if (includeConsole) {
+            "paperd-${dockerImage.systemName}-${dockerImage.versionName}.tar.xz"
         } else {
-            file("$buildDir/cargo-target-no-console") to
-                file("${rootProject.buildDir}/" +
-                    "paperd-${dockerImage.systemName}-${dockerImage.versionName}-no-console.tar.xz")
+            "paperd-${dockerImage.systemName}-${dockerImage.versionName}-no-console.tar.xz"
         }
-        val outputFile = file("$outputDir/paperd.tar.xz")
-
-        val registryDir = if (includeConsole) {
-            file("$buildDir/cargo-registry")
-        } else {
-            file("$buildDir/cargo-registry-no-console")
-        }
+        val targetFile = file("${rootProject.buildDir}/$targetFileName")
         outputs.file(targetFile)
+
+        val outputDir = file("$buildDir/cargo-target")
+        val outputFile = file("$outputDir/paperd.tar.xz")
+        val registryDir = file("$buildDir/cargo-registry")
 
         doLast {
             if (!outputDir.exists() && !outputDir.mkdirs()) {
@@ -172,9 +206,28 @@ fun Project.createRunBuildTask(
     }
 }
 
-fun docker(vararg args: String) {
+fun Project.copyDockerIgnore(): TaskProvider<out Task> {
+    return tasks.register("copyDockerIgnore", Copy::class) {
+        from("${rootProject.projectDir}/targets/.dockerignore")
+        into(projectDir)
+    }
+}
+
+fun Project.docker(vararg args: String) {
     exec {
         commandLine("docker", *args)
+        workingDir = projectDir
+
+    }
+}
+
+inline fun Project.findOrCreateTask(name: String, crossinline config: (Task).() -> Unit): TaskProvider<Task> {
+    return try {
+        tasks.register(name) {
+            config()
+        }
+    } catch (e: Exception) {
+        tasks.named(name)
     }
 }
 
