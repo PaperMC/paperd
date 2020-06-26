@@ -34,7 +34,7 @@ pub fn find_sock_file(sub_m: &ArgMatches) -> Result<PathBuf, ExitValue> {
     let sock_file = sub_m
         .value_of("SOCK")
         .map(PathBuf::from)
-        .or_else(|| env::var_os("PAPERMC_SOCK").map(PathBuf::from))
+        .or_else(|| env::var_os("PAPERD_SOCK").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from(runner::SOCK_FILE_NAME));
 
     if !sock_file.exists() {

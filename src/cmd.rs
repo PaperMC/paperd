@@ -36,7 +36,7 @@ fn handle_cmd_line<'a, 'b>(start_after: &'b str, run_after: &'b str) -> App<'a, 
     let sock_arg = Arg::<'a, 'b>::with_name("SOCK")
         .help(
             "Custom socket file to send commands to a running server. If not set, the \
-             PAPERMC_SOCK environment variable will be checked. If neither are set, the default \
+             PAPERD_SOCK environment variable will be checked. If neither are set, the default \
              value is ./paper.sock.",
         )
         .short("s")
