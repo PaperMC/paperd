@@ -56,7 +56,7 @@ subprojects {
 
     //
     // Build task hierarchy
-    val versionTargetBuild = parentProj.findOrCreateTask("buildReleases") {
+    val versionTargetBuild = parentProj.findOrCreateTask("build") {
         group = "paperd"
         description = "Build all targets for ${systemName.capitalize()} $versionName"
     }.apply {
@@ -64,7 +64,7 @@ subprojects {
             dependsOn(runBuildTask)
         }
     }
-    val systemTargetBuild = grandParentProj.findOrCreateTask("buildReleases") {
+    val systemTargetBuild = grandParentProj.findOrCreateTask("build") {
         group = "paperd"
         description = "Build all targets for all versions for ${systemName.capitalize()}"
     }.apply {
@@ -72,7 +72,7 @@ subprojects {
             dependsOn(versionTargetBuild)
         }
     }
-    grandParentProj.parent!!.findOrCreateTask("buildReleases") {
+    grandParentProj.parent!!.findOrCreateTask("build") {
         group = "paperd"
         description = "Build all targets for all versions of all platforms"
     }.apply {
@@ -112,8 +112,8 @@ subprojects {
     }
 }
 
-tasks.register("buildReleases") {
-    dependsOn(findProject(":targets")!!.tasks.named("buildReleases"))
+tasks.register("build") {
+    dependsOn(findProject(":targets")!!.tasks.named("build"))
     group = "paperd"
     description = "Alias of :targets:buildReleases"
 }
@@ -149,7 +149,7 @@ fun Project.createRunBuildTask(
     dockerImage: DockerImage,
     includeConsole: Boolean
 ): TaskProvider<Task> {
-    return tasks.register("buildRelease") {
+    return tasks.register("build") {
         group = "paperd"
         val extra = if (includeConsole) "" else " (no console)"
         description = "Build release for ${dockerImage.systemName.capitalize()} ${dockerImage.versionName}$extra"

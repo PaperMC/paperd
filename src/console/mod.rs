@@ -285,12 +285,21 @@ impl<'a> Term<'a> {
 
         thread::spawn(move || {
             macro_rules! handle_error {
-                ($stop:ident) => {
-                    if $stop.load(Ordering::SeqCst) {
-                        break;
+                ($stop:ident, $res:expr) => {
+                    match $res {
+                        Ok(v) => v,
+                        Err(ExitValue::Shutdown) => {
+                            $stop.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                        Err(_) => {
+                            if $stop.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(100));
+                            continue;
+                        }
                     }
-                    thread::sleep(Duration::from_secs(1));
-                    continue;
                 };
             }
 
@@ -305,16 +314,8 @@ impl<'a> Term<'a> {
             while !stop.load(Ordering::SeqCst) {
                 let resp: ConsoleStatusMessageResponse = {
                     let message = ConsoleStatusMessage {};
-                    if let Err(_) = sock.send_message(&message) {
-                        handle_error!(stop);
-                    };
-
-                    match sock.receive_message::<ConsoleStatusMessageResponse>() {
-                        Ok(r) => r,
-                        Err(_) => {
-                            handle_error!(stop);
-                        }
-                    }
+                    handle_error!(stop, sock.send_message(&message));
+                    handle_error!(stop, sock.receive_message::<ConsoleStatusMessageResponse>())
                 };
 
                 {
@@ -329,7 +330,7 @@ impl<'a> Term<'a> {
                     break;
                 }
 
-                thread::sleep(Duration::from_secs(1));
+                thread::sleep(Duration::from_millis(100));
             }
         });
     }
@@ -814,7 +815,10 @@ fn request_completions(
         let message = TabCompleteMessage {
             command: command_text,
         };
-        if let Err(_) = sock.send_message(&message) {
+        if let Err(e) = sock.send_message(&message) {
+            if let ExitValue::Shutdown = e {
+                stop_bg.store(true, Ordering::SeqCst);
+            }
             return;
         }
 
@@ -824,6 +828,10 @@ fn request_completions(
 
         let received = match sock.receive_message::<TabCompleteMessageResponse>() {
             Ok(resp) => resp,
+            Err(ExitValue::Shutdown) => {
+                stop_bg.store(true, Ordering::SeqCst);
+                return;
+            }
             Err(_) => return,
         };
 

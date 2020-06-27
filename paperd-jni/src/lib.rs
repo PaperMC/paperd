@@ -29,7 +29,8 @@ use paperd_lib::{
 };
 
 use crate::util::{
-    get_path_string, throw, throw_timeout, throw_with_cause, JAVA_STRING_TYPE, NPE_CLASS,
+    get_path_string, throw, throw_socket_closed, throw_timeout, throw_with_cause, JAVA_STRING_TYPE,
+    NPE_CLASS,
 };
 
 #[macro_use]
@@ -167,9 +168,15 @@ pub extern "system" fn Java_com_destroystokyo_paper_daemon_PaperDaemonJni_sendMe
         message_text: java_string,
     };
 
-    if let Err(e) = send_message(client_sock, &message) {
-        let error_msg = format!("Failed to send message to {}: {}", client_sock, e);
-        throw(&env, error_msg.as_str());
+    match send_message(client_sock, &message) {
+        Err(Error::Nix(nix::Error::Sys(Errno::EPIPE), _)) => {
+            throw_socket_closed(&env);
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to send message to {}: {}", client_sock, e);
+            throw(&env, error_msg.as_str());
+        }
+        _ => {}
     }
 }
 

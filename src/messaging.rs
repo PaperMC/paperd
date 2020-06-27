@@ -70,11 +70,22 @@ impl MessageSocket {
         };
 
         let res = send_message(self.sock, &message);
-        if self.print_err {
-            res.conv("Error attempting to send message to Paper server")?;
-        } else {
-            res.map_err(|_| ExitValue::Code(1))?;
-        };
+        match res {
+            Err(Error::Nix(nix::Error::Sys(Errno::EPIPE), _)) => {
+                if self.print_err {
+                    eprintln!("Socket closed");
+                }
+                return Err(ExitValue::Shutdown);
+            }
+            Err(_) => {
+                if self.print_err {
+                    res.conv("Error attempting to send message to Paper server")?;
+                } else {
+                    res.map_err(|_| ExitValue::Code(1))?;
+                };
+            }
+            _ => {}
+        }
 
         return Ok(());
     }

@@ -49,13 +49,23 @@ pub fn get_path_string(env: &JNIEnv, path: JObject) -> Result<String, ()> {
 const NATIVE_EXCEPTION_CLASS: &'static str = "com/destroystokyo/paper/daemon/NativeErrorException";
 const NATIVE_TIMEOUT_EXCEPTION_CLASS: &'static str =
     "com/destroystokyo/paper/daemon/NativeTimeoutException";
+const NATIVE_SOCKET_CLOSED_CLASS: &'static str =
+    "com/destroystokyo/paper/daemon/NativeSocketClosedException";
 
 pub fn throw(env: &JNIEnv, message: &str) {
     let _ = env.throw_new(NATIVE_EXCEPTION_CLASS, message);
 }
 
 pub fn throw_timeout(env: &JNIEnv) {
-    let obj = env.new_object(NATIVE_TIMEOUT_EXCEPTION_CLASS, "()V", &[]);
+    throw_blank(env, NATIVE_TIMEOUT_EXCEPTION_CLASS);
+}
+
+pub fn throw_socket_closed(env: &JNIEnv) {
+    throw_blank(env, NATIVE_SOCKET_CLOSED_CLASS);
+}
+
+fn throw_blank(env: &JNIEnv, class: &str) {
+    let obj = env.new_object(class, "()V", &[]);
     if obj.is_ok() {
         let _ = env.throw(JThrowable::from(obj.unwrap()));
     }
