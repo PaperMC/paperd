@@ -31,33 +31,32 @@ the amount of data created.**
 
 #### Build all targets for all platforms:
 ```sh
-./gradlew buildReleases 
+./gradlew build 
 ```
 
 #### Build all targets for a single platform:
 ```sh
-./gradlew :targets:<targetName>:buildReleases
+./gradlew :targets:<targetName>:build
 Example:
-./gradlew :targets:debian:buildReleases
+./gradlew :targets:debian:build
 ```
 
 #### Build the console and no console target for a single platform version
 ```sh
-./gradlew :targets:<targetName>:<versionName>:buildReleases
+./gradlew :targets:<targetName>:<versionName>:build
 Example:
-./gradlew :targets:debian:buster:buildReleases
+./gradlew :targets:debian:buster:build
 ```
 
 #### Build a single target
 ```sh
-./gradlew :targets:<targetName>:<versionName>:<full|noConsole>:buildRelease
+./gradlew :targets:<targetName>:<versionName>:<full|noConsole>:build
 Example:
-./gradlew :targets:debian:buster:full:buildRelease
+./gradlew :targets:debian:buster:full:build
 ```
 
 #### Clean build outputs
-Clean tasks follow the exact same pattern as shown above. The only difference is there is a single `clean` task
-for both `buildReleaseFull` and `buildReleaseNoConsole` tasks for each version of each platform.
+Clean tasks follow the exact same pattern as shown above.
 ```sh
 ./gradlew clean # clean all outputs for all versions of all platforms
 ./gradlew :targets:<targetName>:clean # clean all builds for all versions of a platform
