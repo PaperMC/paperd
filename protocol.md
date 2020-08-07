@@ -1,147 +1,115 @@
 paperd Protocol
 ===============
 
-In order to minimize dependencies and overhead, `paperd` uses Unix System V IPC message queues. This was chosen in favor
-of sockets as an extra file isn't required, and also in favor of communicating through ports, which would require
-hosting a server of some sort in Paper (and possibly another in `paperd` as well). The Unix message queues are
-implemented using only a few functions which have been around for decades, and no other dependencies.
+In order to minimize dependencies and overhead, `paperd` uses Unix sockets. The Unix sockets are implemented using only
+a few functions, a socket file, and no other dependencies.
 
 Using such an old system does provide a small amount of complexity, though, which is what will be described here. There
 are three layers to how we use these message queues, described below.
 
-Layer 0
--------
-### The message queue
+### The Unix socket
 
-This is not really a layer. Instead, a brief introduction to how Unix System V IPC message queues work.
+This is not really a layer. Instead, a brief introduction to how Unix sockets work.
 
-Message queues are defined with an integer known as an IPC key, or `key_t` in C. This key is unique to the queue, and is
-how we send and receive messages to and from this queue. That means the Paper server needs to open a queue with some
-key, and `paperd` will need to somehow get the same key to send messages to this queue. This is provided with the
-[`ftok`](http://man7.org/linux/man-pages/man3/ftok.3.html) function.
+Sockets are managed by the kernel, and we retrieve a new Unix socket by calling:
 
 ```c
-key_t ftok(const char *pathname, int proj_id);
+int socket(int domain, int type, int protocol);
 ```
 
-The `paper.pid` file that `paperd` creates when starting the Paper server in daemon mode is used as the path name. The
-path name argument is the absolute path to this file. The `proj_id` parameter is used to add a tiny bit more randomness
-in an attempt to reduce key collisions. This can be any number, as long as both sides are consistent. For us, we use the
-`'P'` character, because Paper.
+The `domain` parameter is `AF_UNIX`, and the `type` parameter is `SOCK_STREAM`. This just means to create a Unix socket
+in stream mode, you can read more about what that all means in the [man pages](https://man7.org/linux/man-pages/man7/unix.7.html).
 
-Once we have our key, we can create our queue using the [`msgget`](http://man7.org/linux/man-pages/man2/msgget.2.html)
-function.
+Now we have a socket address (that is what the `socket` function returns), we need to bind it to a file on disk so that
+other processes can access this socket. We do this with:
 
 ```c
-int msgget(key_t key, int msgflg);
+int bind(int socket, const struct sockaddr *address, socklen_t address_len);
 ```
 
-Here all we do is pass the key we just got from `ftok` to `msgget` as the first parameter and `0666 | IPC_CREAT` as the
-second parameter. This tells `msgget` to create a new queue with `rw-rw-rw-` permissions. The integer returned from
-`msgget` is the `msqid`, or message queue id, which we will use for sending messages to and receiving messages from.
+The socket address we got from calling `socket()` above is passed to the `socket` parameter, and the `address` parameter
+is just a struct which contains the name (full path) of the socket file to create. 
 
-Now that we have a queue created, we can send and receive messages on this queue described in Layer 1 below.
-
-Layer 1
--------
-### A single message
-
-A message is sent with the [`msgsnd`](http://man7.org/linux/man-pages/man2/msgsnd.2.html) function.
+Now we've created a socket and bound it to a file so clients can access it, we need to listen to that socket for new
+connections. We do this with the `listen` function:
 
 ```c
-int msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
+int listen(int socket, int backlog);
 ```
 
-`msgflg` is optional and we always pass `0`.
+Again, the `socket` parameter is the socket id that we got from `socket()`. The `backlog` parameter is simply the number
+of incoming connections that can be queued up before `ECONNREFUSED` is returned. We try to accept new connections as
+soon as they come in, but we use `128` to be safe.
 
-The first argument is just the queue id, which we got from `msgget` above. The second is a pointer to our message
-struct, which looks like this:
+Now to wait for a new connection we need to call:
 
 ```c
-#declare MESSAGE_LENGTH 100
-
-struct message {
-    long m_type;
-    data struct message_data;
-};
-
-struct message_data {
-    int32_t response_chan;
-    uint32_t response_pid;
-    int16_t message_type;
-    uint8_t message_length;
-    uint8_t[MESSAGE_LENGTH] message;
-};
+int accept(int socket, struct sockaddr *restrict address, socklen_t *restrict address_len);
 ```
 
-The struct can't contain any pointers since when the message is received they won't have access to any of that memory,
-so we can't use any VLAs. This is why Layer 2 below is necessary, but we'll get to that later.
+This returns a new socket descriptor in the `address` struct. The old socket descriptor we created is still listening
+for connections, this new socket descriptor can be used to communicate with the client.
 
-When we send a receive messages we need to use the same message type (`m_type` above) on both both sides. For Paper we
-use the integer `0x7654` for all messages.
-
-The `data` field in the `message` struct contains all of our own data. The `m_type` field is required to be exactly the
-length of a `long` on the current system, everything past that we will specify with the `size_t msgsz` parameter of the
-call to `msgsnd`. That is, the call will contain a pointer to our message and `sizeof(struct message_data)`. The
-underlying IPC system won't do anything more than just copy the length of data we provided into the message, and copy it
-back out when we receive.
-
-Our `message_data` has the following fields:
- * `response_chan`: The `msqid` of the IPC message queue to send responses to. `paperd` will create its own message
-                    channel and pass the ID in this part of the message so the Paper server can send messages back to
-                    `paperd`.
- * `response_pid`: The PID of the current running `paperd` process. This is used so Paper can check to make sure the
-                   `paperd` process is still alive if it hasn't received a message in a while.
- * `message_type`: This defines the message type used for Layer 3. This determines the different kinds of messages Paper
-                   and `paperd` will use.
- * `message_length`: The length of the `message` field that is actually used for this message. `message` is a
-                    fixed-length array of 100 bytes, but not every byte may be used in a message.
- * `message`: A fixed-length array of 100 bytes used to store part of the Layer 2 command. `message_length` determines
-              how many of the bytes in this field are actually used. The bytes after `message_length` are not part of
-              the message and may contain anything.
-
-The data stored in `message` is raw byte data at this level. Layer 3 will give that data meaning.
-
-For receiving a message the [`msgrcv`](http://man7.org/linux/man-pages/man3/msgrcv.3p.html) function is used.
+We read data from this new socket descriptor with:
 
 ```c
-ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp, int msgflg);
+ssize_t recv(int socket, void *buffer, size_t length, int flags);
 ```
 
-`msqid`, `msgp`, `msgsz`, `msgtyp`, and `msgflg` are all the same as when we called `msgsnd`, just this time the message
-struct we passed will be set with the data from the message we are receiving.
+This will return up to the number of bytes into `buffer` requested with `length`, unless there is not more data from the
+client. The amount of data copied into `buffer` is the return value of this function.
 
-Layer 2
--------
-### Buffered messages
+When we're done with the connection we call:
 
-Layer 2 simply buffers messages together until a complete message is formed. Messages are kept fairly short at just over
-100 bytes due to message size limitations (which actually can't be changed on macOS). A single Layer 3 document is
-created to be sent as a message, and that document is passed simply as an array of bytes to Layer 2. Layer 2 then chunks
-the data into 100-byte increments until all of the data is completely sent.
+```c
+int close(int fildes);
+```
 
-Layer 1 messages are received in order and appended to a byte buffer until the final message is sent. Once the final
-message is sent the byte buffer can be parsed as a complete message.
+With the socket id passed in.
 
-A Layer 1 message is marked as the final message in a command when the first bit in `message_length` is set to 1.
-`message_length` is an 8-bit unsigned integer, but it only needs to count up to 100 at most. The bottom 7 bits will
-count up to 128 which is plenty. The first bit is instead reserved for marking a message as final.
+----
 
-When the first bit in `message_length` is set to 1 then the last message is appended to the byte buffer and passed to
-Layer 3 to be parsed as a complete document.
+In the client we do something similar:
 
-Layer 3
--------
-### A document
+First we create a socket with `socket()`. Then we connect to the server using
 
-A complete document is just a complete string of bytes representing a single message. In this context, 'single message'
-refers to a single discrete command, rather than an IPC message queue message.
+```c
+int connect(int socket, const struct sockaddr *address, socklen_t address_len);
+```
+
+Where we pass our socket id into `socket`, and the socket address for the server's socket into `address`.
+
+Once we have a connection we can send data to the server with:
+
+```c
+ssize_t send(int socket, const void *buffer, size_t length, int flags);
+```
+
+Which functions the same way as `recv` described above. Note 2 things:
+
+ 1. Both the client and the server can call `send` and `recv`, the socket is bi-directional. This is used in `paperd`
+    often when the server needs to respond to the client's request.
+ 1. If the data for a message doesn't fit into a single message, `send` and `recv` will be called in succession until
+    all of the data is transferred.
+
+### A message
+
+A complete message is just a complete string of bytes representing a single message. In this context, 'single message'
+refers to a single discrete command, rather than a single socket message.
 
 For simplicity, Paper and `paperd` use JSON for passing commands and responses between each other. The JSON data is
-encoded using UTF-8 and sent to Layer 2 to be sent as a series of smaller messages.
+encoded using UTF-8 and sent to between the client and server through a series of `send` and `recv` calls with a
+buffer size of 1000 bytes.
 
-Once a full command has been received, the `message_type` field of the last message is used to determine how to parse
-the binary data as a command. The following message types are available:
+All messages contain the at least 16 bytes. These 16 bytes represent 2 64-bit integers representing the following 2
+fields, in order:
+
+ * `message_type`
+ * `message_length`
+
+The fields are sent big endian. The `message_type` determines how the message is parsed. The `message_length` determines
+how much data the receiver will expect to receive for a complete message. Note the `message_length` does not include the
+first 16 bytes, since that's implicit.
 
 > Note: Several of the messages have a request that is nothing more than `{}`, as the message type is all that needs to
 > be known. the reason an empty object is still sent is simply for consistency.
@@ -258,3 +226,67 @@ Multiple Responses:
 ```
 
 Responses for the timings command will be read until `done` is `true`.
+
+#### Logs Message `6` (for console)
+
+Request:
+```json
+{
+  "pid": 0
+}
+```
+
+Multiple Responses:
+```json
+{
+  "message": "some message"
+}
+```
+
+Response for new log messages will read until `End Logs Message` below is received.
+
+#### End Logs Message `7` (for console)
+
+Request:
+```json
+{
+  "pid": 0
+}
+```
+
+No Response.
+
+#### Console Status Message `8` (for console)
+
+Request:
+```json
+{}
+```
+
+Single Response:
+```json
+{
+  "serverName": "Server Name",
+  "players": 0,
+  "maxPlayers": 0,
+  "tps": 1.0
+}
+```
+
+#### Tab Complete Message `9` (for console)
+
+Request:
+```json
+{
+  "command": "command string"
+}
+```
+
+Single Response:
+```json
+{
+  "suggestions": [
+    "suggestion 1",
+    "suggestion 2"
+  ]
+}
