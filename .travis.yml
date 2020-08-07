@@ -7,9 +7,6 @@ env:
   - CMD="cargo build"
   - CMD="cargo build --features console"
 matrix:
-  include:
-    - env: CMD="./build_release.sh"
-      services: release
   allow_failures:
     - rust: beta
     - rust: nightly
