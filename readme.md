@@ -21,7 +21,7 @@ Building
 A 64 bit JDK is required to build `paperd` and a 64 bit JVM is required to use `paperd`.
 
 This project requires the [Rust](https://www.rust-lang.org/) toolchain. `paperd` is built on the latest release of Rust,
-currently version `1.42.0`. 
+currently version `1.44.1`. 
 
 To build for your own system with console support:
 ```sh
