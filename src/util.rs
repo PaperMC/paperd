@@ -18,7 +18,7 @@ use crate::runner;
 use crate::runner::PID_FILE_NAME;
 use clap::ArgMatches;
 use nix::unistd::Pid;
-use paperd_lib::connect_socket;
+use paperd_lib::{connect_socket, Error};
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
@@ -45,14 +45,18 @@ pub fn find_sock_file(sub_m: &ArgMatches) -> Result<PathBuf, ExitValue> {
     return Ok(sock_file);
 }
 
+pub fn get_sock_from_file_direct<P: AsRef<Path>>(sock_file: P) -> Result<MessageSocket, Error> {
+    let sock = connect_socket(sock_file.as_ref())?;
+
+    return Ok(MessageSocket::new(sock));
+}
+
 pub fn get_sock_from_file<P: AsRef<Path>>(sock_file: P) -> Result<MessageSocket, ExitValue> {
     let msg = format!(
         "Failed to connect to socket {}",
         sock_file.as_ref().display()
     );
-    let sock = connect_socket(sock_file.as_ref()).conv(msg)?;
-
-    return Ok(MessageSocket::new(sock));
+    return get_sock_from_file_direct(sock_file.as_ref()).conv(msg);
 }
 
 pub fn find_program(searches: &[(&str, &str)]) -> Option<PathBuf> {

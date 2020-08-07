@@ -20,7 +20,9 @@ use crate::protocol::check_protocol;
 use crate::send::send_command;
 use crate::status::{StatusMessage, StatusMessageResponse};
 use crate::util;
-use crate::util::{get_pid, get_sock, get_sock_from_file, ExitError, ExitValue};
+use crate::util::{
+    get_pid, get_sock, get_sock_from_file, get_sock_from_file_direct, ExitError, ExitValue,
+};
 use clap::ArgMatches;
 use crossbeam_channel::Sender;
 use ncurses::{
@@ -102,7 +104,9 @@ pub fn console(sub_m: &ArgMatches) -> Result<(), ExitValue> {
         let end = EndLogsListenerMessage {
             pid: process::id() as i32,
         };
-        get_sock_from_file(&sock_file)?.send_message(&end)?;
+        if let Ok(m) = get_sock_from_file_direct(&sock_file) {
+            let _ = m.send_message(&end);
+        }
     }
 
     return res;
@@ -215,7 +219,7 @@ impl<'a> Term<'a> {
         let sock_file_bg = self.sock_file.clone();
 
         thread::spawn(move || {
-            let sock = match get_sock_from_file(&sock_file_bg) {
+            let sock = match get_sock_from_file_direct(&sock_file_bg) {
                 Ok(s) => s,
                 Err(_) => {
                     stop.store(true, Ordering::SeqCst);
@@ -303,7 +307,7 @@ impl<'a> Term<'a> {
                 };
             }
 
-            let sock = match get_sock_from_file(&sock_file_bg) {
+            let sock = match get_sock_from_file_direct(&sock_file_bg) {
                 Ok(s) => s,
                 Err(_) => {
                     stop.store(true, Ordering::SeqCst);
@@ -807,7 +811,7 @@ fn request_completions(
     let chan_bg = chan.clone();
     let stop_bg = stop.clone();
     thread::spawn(move || {
-        let sock = match get_sock_from_file(&sock_file_bg) {
+        let sock = match get_sock_from_file_direct(&sock_file_bg) {
             Ok(sock) => sock,
             Err(_) => return,
         };
