@@ -46,6 +46,7 @@ makes available:
    * `send`: Send a command to the server.
    * `status`: View the current status of the server.
    * `timings`: Generate a Timings report and get a URL to view it.
+   * `console`: Attach to an emulated console for the server. 
  * Commands for running the server:
    * `run`: Run the server in the foreground (not as a daemon, really only useful for testing)
    * `start`: Start the server in the background as a daemon

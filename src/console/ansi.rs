@@ -227,7 +227,7 @@ impl AnsiCode {
 
     fn enable(self) {
         let (pair, attr) = self.attr_pair();
-        if let Some((id, _, _)) = pair {
+        if let Some(PairValues { id, .. }) = pair {
             attron(COLOR_PAIR(id));
         }
         if let Some(attr) = attr {
@@ -240,7 +240,7 @@ impl AnsiCode {
         if let Some(attr) = attr {
             attroff(attr);
         }
-        if let Some((id, _, _)) = pair {
+        if let Some(PairValues { id, .. }) = pair {
             attroff(COLOR_PAIR(id));
         }
     }

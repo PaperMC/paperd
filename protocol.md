@@ -116,6 +116,8 @@ first 16 bytes, since that's implicit.
 
 ----
 
+### List of messages
+
 #### Protocol Version `0`
 
 Request:
