@@ -11,7 +11,7 @@ a daemon, rather than simply backgrounded using `screen` or `tmux`. This is acco
 application and custom changes in the Paper server.
 
 **Support and Project Discussion:**
- - [IRC](http://irc.spi.gt/iris/?channels=paper) or [Discord](https://discord.gg/papermc)
+ - [IRC](https://webchat.esper.net/?channels=paper) or [Discord](https://discord.gg/papermc)
 
 Building
 --------
